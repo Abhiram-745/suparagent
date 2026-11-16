@@ -1,4 +1,5 @@
 """A mailbox/number provider's tools reach an agent only while one of its resources is assigned to it."""
+import json
 from types import SimpleNamespace as NS
 from uuid import uuid4
 
@@ -208,5 +209,133 @@ async def test_an_ordinary_connection_call_is_not_recorded(world, sessions, remo
         await approve(sessions, world[1], alias, {"q": "x"})
         assert (await bridge.execute(alias, {"q": "x"}))["content"][0]["text"] == "ok"
         assert await audit_rows() == []
+    finally:
+        await bridge.close()
+
+
+# ---- argument-level rules, written against the tool definitions AgentMail reported on a live account ----
+
+SEND_DRAFT = {"name": "send_draft", "description": "Send a draft", "inputSchema": {
+    "type": "object", "properties": {"inboxId": {"type": "string"}, "draftId": {"type": "string"}},
+    "required": ["inboxId", "draftId"], "additionalProperties": False}}
+LIST_INBOXES = {"name": "list_inboxes", "description": "List inboxes", "inputSchema": {
+    "type": "object", "properties": {"limit": {"type": "integer"}, "pageToken": {"type": "string"}},
+    "additionalProperties": False}}
+MINE, OTHER = "helper@agentmail.to", "someone-else@agentmail.to"
+LIST_REPLY = {"inboxes": [
+    {"inboxId": MINE, "email": MINE, "displayName": "Mine"},
+    {"inboxId": OTHER, "email": OTHER, "displayName": "Other"}], "count": 2, "limit": 20}
+
+
+@pytest.fixture
+async def mail(world, provider, sessions, remote):
+    """The provider also has AgentMail's send_draft and list_inboxes granted; the helper inbox is assigned."""
+    tools = [community_mcp._normalize_tool(SEND_DRAFT), community_mcp._normalize_tool(LIST_INBOXES)]
+    from app.db.models import CustomMcpToolGrant
+    async with sessions() as db:
+        for tool in tools:
+            db.add(CustomMcpToolGrant(
+                agent_id=world[4].id, connection_id=world[3].id, tool_name=tool["name"],
+                schema_digest=tool["schema_digest"], description=tool["description"], input_schema=tool["inputSchema"]))
+        await db.commit()
+    remote.tools = [world[5], *tools]
+    await assign(sessions, world[4].id, provider)
+    bridge = CommunityMcpBridge(world[0], world[1], await mounted(world))
+    by_tool = {item["remote_name"]: alias for alias, item in bridge.aliases.items()}
+    yield bridge, by_tool
+    await bridge.close()
+
+
+def test_the_rules_only_apply_to_a_provider_that_names_the_inbox_in_inboxid():
+    from app.services import agent_service_policy as policy
+    schema = community_mcp._normalize_tool(SEND_DRAFT)["inputSchema"]
+    assert policy.refusal("agentmail", schema, {"inboxId": OTHER, "draftId": "d"}, [MINE]) == "resource_not_assigned"
+    assert policy.refusal("agentmail", schema, {"inboxId": MINE.upper(), "draftId": "d"}, [MINE]) is None
+    assert policy.refusal("agentmail", schema, {"draftId": "d"}, [MINE]) == "resource_not_assigned"
+    assert policy.refusal("agentmail", schema, {"inboxId": 5}, [MINE]) == "resource_not_assigned"
+    assert policy.refusal("other", schema, {"inboxId": OTHER}, [MINE]) is None
+    assert policy.refusal("agentphone", schema, {"inboxId": OTHER}, [MINE]) is None
+    no_inbox = community_mcp._normalize_tool(LIST_INBOXES)["inputSchema"]
+    assert policy.refusal("agentmail", no_inbox, {}, [MINE]) is None
+
+
+async def test_a_call_naming_another_inbox_is_refused_before_any_approval_or_request(mail, remote, sessions, world):
+    bridge, tools = mail
+    alias = tools["send_draft"]
+    result = await bridge.execute(alias, {"inboxId": OTHER, "draftId": "d1"})
+    assert result["code"] == "resource_not_assigned" and remote.calls == [] and remote.built == []
+    # Even with a matching approval card on file the call is not made.
+    await approve(sessions, world[1], alias, {"inboxId": OTHER, "draftId": "d1"})
+    assert (await bridge.execute(alias, {"inboxId": OTHER, "draftId": "d1"}))["code"] == "resource_not_assigned"
+    assert remote.calls == []
+
+
+async def test_a_call_naming_the_assigned_inbox_goes_through_with_its_own_approval(mail, remote, sessions, world):
+    bridge, tools = mail
+    alias = tools["send_draft"]
+    assert (await bridge.execute(alias, {"inboxId": MINE, "draftId": "d1"}))["code"] == "not_approved"
+    await approve(sessions, world[1], alias, {"inboxId": MINE, "draftId": "d1"})
+    result = await bridge.execute(alias, {"inboxId": MINE, "draftId": "d1"})
+    assert result["content"][0]["text"] == "ok" and remote.calls == [("send_draft", {"inboxId": MINE, "draftId": "d1"})]
+
+
+async def test_no_approval_card_is_offered_for_another_inbox(mail):
+    bridge, tools = mail
+    alias = tools["send_draft"]
+    run = NS(ctx=NS(media_review_only=False, draft_only=False, community_tools=[alias], community_bridge=bridge))
+    assert tool_policy.automatic(PREFIX + alias, "ask", run, {"inboxId": OTHER, "draftId": "d"}) == (
+        "denied", "resource_not_assigned")
+    assert tool_policy.automatic(PREFIX + alias, "ask", run, {"inboxId": MINE, "draftId": "d"}) is None
+
+
+async def test_unassigning_the_inbox_after_the_turn_started_refuses_the_next_call(mail, sessions, world, provider, remote):
+    bridge, tools = mail
+    alias = tools["send_draft"]
+    other = uuid4().hex
+    async with sessions() as db:
+        await db.execute(delete(AgentServiceAssignment).where(AgentServiceAssignment.agent_id == world[4].id))
+        db.add(AgentServiceResource(id=other, owner_id=world[3].owner_id, connection_id=world[3].id, kind="email",
+                                    address=OTHER, label="Other"))
+        await db.flush()
+        db.add(AgentServiceAssignment(agent_id=world[4].id, resource_id=other))
+        await db.commit()
+    await approve(sessions, world[1], alias, {"inboxId": MINE, "draftId": "d1"})
+    assert (await bridge.execute(alias, {"inboxId": MINE, "draftId": "d1"}))["code"] == "resource_not_assigned"
+    assert remote.calls == []
+
+
+async def test_list_inboxes_returns_only_the_assigned_inboxes(mail, remote, sessions, world):
+    bridge, tools = mail
+    alias = tools["list_inboxes"]
+    remote.reply = {"content": [{"type": "text", "text": json.dumps(LIST_REPLY)}], "structuredContent": LIST_REPLY,
+                    "isError": False}
+    await approve(sessions, world[1], alias, {})
+    result = await bridge.execute(alias, {})
+    kept = result["structuredContent"]
+    assert [i["inboxId"] for i in kept["inboxes"]] == [MINE] and kept["count"] == 1
+    assert OTHER not in json.dumps(result)
+
+
+async def test_list_inboxes_is_withheld_when_its_result_cannot_be_read(mail, remote, sessions, world):
+    bridge, tools = mail
+    alias = tools["list_inboxes"]
+    remote.reply = {"content": [{"type": "text", "text": "not json at all"}], "isError": False}
+    await approve(sessions, world[1], alias, {})
+    result = await bridge.execute(alias, {})
+    assert result["code"] == "result_not_filterable" and "not json" not in json.dumps(result)
+
+
+async def test_a_connection_that_is_not_agentmail_is_not_narrowed_by_inboxid(mail, sessions, world, remote):
+    bridge, tools = mail
+    async with sessions() as db:
+        row = await db.get(AgentServiceProvider, world[3].id)
+        row.provider = "other"
+        await db.commit()
+    bridge = CommunityMcpBridge(world[0], world[1], await mounted(world))
+    try:
+        alias = {i["remote_name"]: a for a, i in bridge.aliases.items()}["send_draft"]
+        await approve(sessions, world[1], alias, {"inboxId": OTHER, "draftId": "d1"})
+        result = await bridge.execute(alias, {"inboxId": OTHER, "draftId": "d1"})
+        assert result["content"][0]["text"] == "ok"
     finally:
         await bridge.close()

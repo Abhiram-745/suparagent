@@ -23,6 +23,12 @@ def automatic(tool, mode, run, arguments):
         if tool == 'mcp__community__custom_search':
             # Searches only the index of tools this agent was already granted; nothing leaves the backend.
             return 'allowed', 'community_search'
+        bridge = getattr(run.ctx, 'community_bridge', None)
+        if bridge is not None:
+            # A call naming a mailbox or number the agent was not given never reaches an approval card.
+            reason = bridge.argument_refusal(tool.removeprefix('mcp__community__'), arguments)
+            if reason is not None:
+                return 'denied', reason
         return ('denied', 'plan_mode') if mode == 'plan' else None
     if tool.startswith(composio_policy.PREFIX):
         # Connected apps (composio_bridge.py): decided here, never by a saved command rule.
