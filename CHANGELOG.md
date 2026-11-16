@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.8.7 - 2026-11-17
+
+Desktop 0.8.7: the installed app now updates itself from Settings → App updates (Download, then Restart to update) instead of showing a command. This release still has to be installed by hand; later ones update in place.
+
 ### Added
 
 - Add your own remote MCP server from Apps → MCP Marketplace → Custom MCP servers. A new server starts off with no agent access: you test it, turn it on, then grant exact tools to each agent. Sign in with none, a bearer token, a custom header, or browser sign-in (OAuth with PKCE). Secrets are write-only and stored encrypted. Claude and Codex can call granted tools in person chats; every call asks for your approval. Routines, rooms, computer sessions and other engines do not receive them. Only public https:// servers on port 443 are supported; local commands are not.
