@@ -1,8 +1,37 @@
 """Every automatic tool decision passes through the durable approval gate."""
+from pathlib import Path
+
 from app.computers import policy as computers
 from app import composio_generic
-from app.services import composio_policy
+from app.services import composio_policy, safety_floor
 from app.team import policy as teams
+
+FILE_WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit", "NotebookEdit"})
+
+
+def _full_access(tool, run, arguments):
+    """Full access: the engine's own commands and workspace edits run without a card.
+
+    The decision stays here, not in the CLI, so the approval log records it and the safety
+    floor still applies. A command on the floor or one that cannot be read, and a write outside
+    the agent's workspace, still wait for a person (or are refused when nobody can answer).
+    Connected apps, marketplace tools, screen input and team tools never reach this function.
+    """
+    if not isinstance(arguments, dict):
+        return None
+    if tool == "Bash":
+        command = arguments.get("command")
+        return ("allowed", "full_access") if isinstance(command, str) and safety_floor.clears_floor(command) else None
+    if tool in FILE_WRITE_TOOLS:
+        target, workspace = arguments.get("file_path") or arguments.get("notebook_path"), getattr(run.ctx, "workspace", None)
+        if not isinstance(target, str) or workspace is None:
+            return None
+        try:
+            Path(target).resolve().relative_to(Path(workspace).resolve())
+        except (ValueError, OSError):
+            return None
+        return "allowed", "full_access"
+    return None
 
 
 def automatic(tool, mode, run, arguments):
@@ -51,6 +80,8 @@ def automatic(tool, mode, run, arguments):
                 else:
                     calls.discard(key)
         return decision
+    if mode == "full_access" and not tool.startswith("mcp__"):
+        return _full_access(tool, run, arguments)
     # Screen grants are turn scoped and are never persisted as command rules.
     if tool in computers.SCREEN_INPUT or tool in computers.SCREEN_READ:
         return computers.automatic(tool, mode, screen_granted=getattr(run, "screen_granted", False))

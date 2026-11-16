@@ -106,7 +106,7 @@ function toDraft(agent: Agent): Draft {
     model: agent.model,
     effort: agent.effort ?? null,
     workspace_path: agent.workspace_path ?? "",
-    approval_mode: agent.approval_mode === "approve_for_me" && !approvalModesForProvider(agent.provider).some((mode) => mode.value === "approve_for_me") ? "ask" : agent.approval_mode,
+    approval_mode: !approvalModesForProvider(agent.provider).some((mode) => mode.value === agent.approval_mode) ? "ask" : agent.approval_mode,
     memory_enabled: agent.memory_enabled ?? true,
     fallback_provider: agent.fallback_provider ?? null,
     fallback_model: agent.fallback_model ?? null,

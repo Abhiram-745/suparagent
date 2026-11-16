@@ -121,7 +121,7 @@ function draftOf(routine: Routine, provider?: string): Draft {
   return {
     id: routine.id, name: routine.name, agentId: routine.agent_id, prompt: routine.prompt,
     schedule: scheduleDraftOf(routine), runLimit: String(routine.run_limit_minutes),
-    approvalMode: routine.approval_mode === "approve_for_me" && !approvalModesForProvider(provider).some((mode) => mode.value === "approve_for_me") ? "ask" : routine.approval_mode,
+    approvalMode: !approvalModesForProvider(provider).some((mode) => mode.value === routine.approval_mode) ? "ask" : routine.approval_mode,
     approvalWait: String(routine.approval_timeout_minutes),
     catchUp: String(routine.catch_up_minutes), retryLimit: String(routine.retry_limit),
     quietReporting: routine.quiet_reporting ?? false,
