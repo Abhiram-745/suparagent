@@ -30,6 +30,7 @@ from app.db.models import (
     Thread, Turn,
 )
 from app.services import user_credential_service
+from app.services.agent_service_store import unassigned_providers
 
 logger = get_logger(__name__)
 
@@ -296,7 +297,11 @@ class CommunityMcpBridge:
             .order_by(CustomMcpConnection.id, CustomMcpToolGrant.tool_name)
         )).all()
         snapshot = []
+        # A mailbox/number provider is mounted only for an agent that has one of its resources assigned.
+        withheld = await unassigned_providers(db, agent_id, sorted({connection.id for connection, _ in rows}))
         for connection, grant in rows:
+            if connection.id in withheld:
+                continue
             if connection.tested_revision != connection.revision or connection.tools_snapshot is None:
                 continue
             if connection.auth_mode not in ("none", "bearer", "header", "oauth"):
@@ -576,6 +581,8 @@ class CommunityMcpBridge:
                                 or not (connection.shared or connection.owner_person_id == turn.person_id)))
                 or grant is None or grant.schema_digest != item["schema_digest"]
                 or grant.input_schema != item["input_schema"]):
+            return None
+        if custom and await unassigned_providers(db, agent.id, [connection.id]):
             return None
         if custom:
             return {"slug": connection.id, "name": connection.name, "endpoint": connection.endpoint,
