@@ -39,6 +39,7 @@ from app.schemas.custom_mcp import (
     CustomMcpUpdate,
 )
 from app.services import user_credential_service
+from app.services.agent_service_store import remove_provider_data
 from app.services.local_access_policy import require_local_access
 from app.services.thread_runtime import LOCAL_OWNER_ID
 
@@ -567,6 +568,7 @@ async def delete_connection(connection_id: str, response: Response, db: AsyncSes
         if row is None or not _allowed(row, removal=True):
             raise _fail(404, "connection_not_found")
         await _delete_grants(db, row.id)
+        await remove_provider_data(db, row.id)
         await _delete_credential(db, row.id)
         await oauth.delete_record(db, LOCAL_OWNER_ID, row.id)
         await _delete_flows(db, row.id)

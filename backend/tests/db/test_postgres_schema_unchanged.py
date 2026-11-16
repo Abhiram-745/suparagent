@@ -33,6 +33,7 @@ PLANNER_TABLES = {"work_board", "work_column", "work_item"}
 WORK_EXECUTION_TABLES = {"work_item_run", "work_item_event"}
 COMMUNITY_MCP_TABLES = {"community_mcp_connection", "community_mcp_tool_grant"}
 CUSTOM_MCP_TABLES = {"custom_mcp_connection", "custom_mcp_tool_grant", "custom_mcp_oauth_flow"}
+AGENT_SERVICE_TABLES = {"agent_service_provider", "agent_service_resource", "agent_service_assignment"}
 WORKFLOW_TABLES = {"workflow", "workflow_run"}
 PEOPLE_TABLES = {"person", "person_invite", "people_audit"}
 
@@ -88,6 +89,7 @@ def test_every_table_is_covered_by_one_of_the_snapshots():
         | WORK_EXECUTION_TABLES
         | COMMUNITY_MCP_TABLES
         | CUSTOM_MCP_TABLES
+        | AGENT_SERVICE_TABLES
         | WORKFLOW_TABLES
         | PEOPLE_TABLES
     )
@@ -109,6 +111,10 @@ def test_community_mcp_tables_compile_to_their_reviewed_postgres_schema():
 
 def test_custom_mcp_tables_compile_to_their_reviewed_postgres_schema():
     assert postgres_ddl(CUSTOM_MCP_TABLES) == snapshot_text(HERE / "postgres_schema_custom_mcp.sql")
+
+
+def test_agent_service_tables_compile_to_their_reviewed_postgres_schema():
+    assert postgres_ddl(AGENT_SERVICE_TABLES) == snapshot_text(HERE / "postgres_schema_agent_service.sql")
 
 
 def test_computer_table_compiles_to_its_reviewed_postgres_schema():
