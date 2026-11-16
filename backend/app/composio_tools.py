@@ -39,6 +39,7 @@ _CAMPAIGN_BRANCH = re.compile(r"^campaign/[A-Za-z0-9._/-]{1,150}$")
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _PR_HEAD = re.compile(r"^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}):)?campaign/[A-Za-z0-9._/-]{1,150}$")
 MAX_FILE = 100_000
+MAX_INSERT = 5_000
 _ALIAS = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.-]{0,39}$")
 _LINE_BAD = re.compile(r"[\x00-\x1f\x7f]")
 _TEXT_BAD = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -171,13 +172,18 @@ TOOLS: tuple[Tool, ...] = (
            ("owner", "repo", "branch", "from_sha"), fields=("ref", "url")),
     _write("github_commit_file", "GITHUB_CREATE_OR_UPDATE_FILE_CONTENTS",
            "Create or replace one text file on a campaign/ branch, as one commit. It never writes to the default branch. "
-           "To replace a file send its current blob id as sha (github_get_file shows it). A person is asked to approve it first.",
+           "To replace a file send its current blob id as sha (github_get_file shows it). "
+           "For a large existing file do not send its content: send insert_after (one exact existing line) and insert_text "
+           "instead, and the line(s) are added right after that line; it fails if the line is missing or not unique. "
+           "A person is asked to approve it first.",
            {"owner": OWNER, "repo": REPO, "path": _text(500, "The file path in the repository.", "path"),
             "branch": _text(160, "The campaign/ branch to commit to.", "campaign_branch"),
             "message": _text(200, "The commit message (one line).", "line"),
-            "content": _text(MAX_FILE, "The complete new text of the file."),
-            "sha": _text(40, "The blob id of the file being replaced, when it already exists.", "sha")},
-           ("owner", "repo", "path", "branch", "message", "content"), fields=("content.path", "content.html_url", "commit.sha", "commit.html_url")),
+            "content": _text(MAX_FILE, "The complete new text of the file. Leave out when using insert_after."),
+            "sha": _text(40, "The blob id of the file being replaced, when it already exists.", "sha"),
+            "insert_after": _text(500, "Edit mode: one existing full line of the file, exactly as written, that appears once.", "text"),
+            "insert_text": _text(MAX_INSERT, "Edit mode: the line(s) to add right after that line.", "text")},
+           ("owner", "repo", "path", "branch", "message"), fields=("content.path", "content.html_url", "commit.sha", "commit.html_url")),
     _write("github_create_issue", "GITHUB_CREATE_AN_ISSUE", "Create an issue. A person is asked to approve it first.",
            {"owner": OWNER, "repo": REPO, "title": TITLE, "body": BODY,
             "labels": {"type": "array", "maxItems": 10, "items": {"type": "string", "maxLength": 50, "format": "line"},
@@ -477,6 +483,12 @@ def clean_arguments(tool: Tool, arguments: object) -> tuple[dict, str | None]:
     missing = [name for name in tool.required if name not in arguments]
     if missing:
         raise BadArguments("Missing: " + ", ".join(missing))
+    if tool.name == "github_commit_file":
+        editing = "insert_after" in arguments or "insert_text" in arguments
+        if editing and ("content" in arguments or "sha" in arguments or "insert_after" not in arguments or "insert_text" not in arguments):
+            raise BadArguments("To edit, send insert_after and insert_text only (no content or sha).")
+        if not editing and "content" not in arguments:
+            raise BadArguments("Missing: content (or insert_after and insert_text).")
     sent = dict(tool.defaults)
     sent.update({name: _check(name, spec, arguments[name]) for name, spec in tool.properties.items() if name in arguments})
     account = arguments.get("account")
@@ -491,7 +503,7 @@ def clean_arguments(tool: Tool, arguments: object) -> tuple[dict, str | None]:
     if tool.name == "github_create_branch":
         sent["ref"] = "refs/heads/" + sent.pop("branch")
         sent["sha"] = sent.pop("from_sha")
-    if tool.name == "github_commit_file":
+    if tool.name == "github_commit_file" and "content" in sent:
         sent["content"] = base64.b64encode(sent["content"].encode("utf-8")).decode("ascii")
     if tool.name == "github_get_file":
         sent.setdefault("path", "")  # Composio requires the field; empty means the repository root
@@ -519,6 +531,33 @@ def clean_arguments(tool: Tool, arguments: object) -> tuple[dict, str | None]:
         if end - start > timedelta(days=7):
             raise BadArguments("An event can last at most 7 days.")
     return sent, account
+
+
+def edit_source(data) -> tuple[str, str]:
+    """The whole current text and blob id of a file, for an edit. Refuses a file that was not read in full."""
+    found = _find(data, _is_file)
+    if found is None or not isinstance(found.get("sha"), str) or not _SHA.match(found["sha"]):
+        raise BadArguments("The file could not be read, so nothing was changed.")
+    raw = found["content"]
+    try:
+        body = base64.b64decode("".join(raw.split()), validate=True) if found.get("encoding") == "base64" else raw.encode("utf-8")
+        text = body.decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        raise BadArguments("That file is not text, so it cannot be edited.") from None
+    if "\x00" in text or (isinstance(found.get("size"), int) and found["size"] != len(body)):
+        raise BadArguments("The file was not read in full, so nothing was changed.")
+    return text, found["sha"]
+
+
+def insert_after_line(text: str, anchor: str, insert: str) -> str:
+    """`insert` added after the one line of `text` that equals `anchor`."""
+    crlf = "\r\n" in text
+    lines = text.split("\n")
+    hits = [i for i, line in enumerate(lines) if line.rstrip("\r") == anchor.rstrip("\r")]
+    if len(hits) != 1:
+        raise BadArguments(f"insert_after must match exactly one line of the file; it matched {len(hits)}. Nothing was changed.")
+    added = [(line + "\r") if crlf else line for line in insert.rstrip("\r\n").replace("\r\n", "\n").split("\n")]
+    return "\n".join(lines[:hits[0] + 1] + added + lines[hits[0] + 1:])
 
 
 def _pick(item, dotted):
