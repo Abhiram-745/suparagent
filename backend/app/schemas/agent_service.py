@@ -56,3 +56,21 @@ class AgentServiceAuditOut(BaseModel):
     outcome: Literal["dispatched", "completed", "failed", "outcome_unknown"]
     approved_by: str | None
     created_at: datetime
+
+
+PresetName = Literal["agentmail", "agentphone"]
+
+
+class AgentServicePresetOut(BaseModel):
+    preset: PresetName
+    label: str
+    kind: ResourceKind
+    endpoint: str
+    summary: str
+
+
+class AgentServiceProviderFromPreset(BaseModel):
+    preset: PresetName
+    # Defaults to the preset's label.
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    resource_limit: int = Field(default=3, ge=1, le=20)

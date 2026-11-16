@@ -231,3 +231,39 @@ async def test_removing_the_provider_designation_also_drops_the_tool_grants_and_
     async with factory() as db:
         assert (await db.scalars(select(CustomMcpToolGrant))).all() == []
         assert (await db.get(CustomMcpConnection, conn["id"])).revision == conn["revision"] + 1
+
+
+async def test_the_presets_name_the_official_endpoints(admin):
+    presets = {p["preset"]: p for p in (await admin.get(f"{API}/presets")).json()}
+    assert presets["agentmail"]["endpoint"] == "https://mcp.agentmail.to/mcp" and presets["agentmail"]["kind"] == "email"
+    assert presets["agentphone"]["endpoint"] == "https://mcp.agentphone.ai/mcp" and presets["agentphone"]["kind"] == "phone"
+    assert set(presets) == {"agentmail", "agentphone"}
+
+
+@pytest.mark.parametrize("preset,kind", [("agentmail", "email"), ("agentphone", "phone")])
+async def test_a_preset_creates_a_disabled_private_oauth_connection_marked_as_a_provider(admin, preset, kind):
+    created = await admin.post(f"{API}/providers", json={"preset": preset, "resource_limit": 2})
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert (body["provider"], body["resource_limit"], body["resource_count"]) == (preset, 2, 0)
+    [conn] = (await admin.get(f"{PATH}/connections")).json()
+    assert conn["id"] == body["connection_id"] and conn["auth_mode"] == "oauth"
+    assert conn["enabled"] is False and conn["shared"] is False and conn["state"] != "connected"
+    assert conn["credential_configured"] is False
+    address = "helper@agentmail.to" if kind == "email" else "+14155550100"
+    made = await admin.post(f"{API}/resources", json={
+        "connection_id": body["connection_id"], "kind": kind, "address": address, "label": "First"})
+    assert made.status_code == 201 and made.json()["agent_ids"] == []
+
+
+async def test_a_preset_takes_the_given_name_and_a_second_account_is_allowed(admin):
+    first = await admin.post(f"{API}/providers", json={"preset": "agentmail", "name": "Work mail"})
+    second = await admin.post(f"{API}/providers", json={"preset": "agentmail"})
+    assert first.status_code == second.status_code == 201
+    assert {p["connection_name"] for p in (await admin.get(f"{API}/providers")).json()} == {"Work mail", "AgentMail"}
+
+
+async def test_an_unknown_preset_is_refused(admin):
+    refused = await admin.post(f"{API}/providers", json={"preset": "telnyx"})
+    assert refused.status_code == 422
+    assert (await admin.get(f"{PATH}/connections")).json() == []

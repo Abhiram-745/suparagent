@@ -27,9 +27,12 @@ from app.db.transactions import begin_write
 from app.routers import custom_mcp
 from app.routers.custom_mcp import _bind_actor, _clean_name, _connection, _fail, _no_store, _owned_agent
 from app.routers.integrations import _owner
+from app.schemas.custom_mcp import CustomMcpCreate
 from app.schemas.agent_service import (
     AgentServiceAssignRequest,
     AgentServiceAuditOut,
+    AgentServicePresetOut,
+    AgentServiceProviderFromPreset,
     AgentServiceProviderOut,
     AgentServiceProviderSet,
     AgentServiceResourceCreate,
@@ -110,6 +113,46 @@ async def _provider_out(db: AsyncSession, row: AgentServiceProvider) -> AgentSer
         provider=row.provider, resource_limit=row.resource_limit, resource_count=int(count or 0),
         created_at=row.created_at,
     )
+
+
+# ---------------------------------------------------------------- presets
+
+# The services' official hosted MCP endpoints, with browser sign-in. Endpoints come from the reviewed OpenMausBot
+# guide (docs/custom-mcp-servers.md, pin 1a4e4da9) and are not yet confirmed against a live account here.
+_PRESETS = {
+    "agentmail": AgentServicePresetOut(
+        preset="agentmail", label="AgentMail", kind="email", endpoint="https://mcp.agentmail.to/mcp",
+        summary="Email inboxes for an agent, on your own AgentMail account."),
+    "agentphone": AgentServicePresetOut(
+        preset="agentphone", label="AgentPhone", kind="phone", endpoint="https://mcp.agentphone.ai/mcp",
+        summary="US and Canadian numbers, texts and calls for an agent, on your own AgentPhone account."),
+}
+
+
+@router.get("/presets", response_model=list[AgentServicePresetOut])
+async def list_presets(response: Response):
+    _no_store(response)
+    return list(_PRESETS.values())
+
+
+@router.post("/providers", response_model=AgentServiceProviderOut, status_code=201)
+async def add_provider_from_preset(
+    payload: AgentServiceProviderFromPreset, response: Response, db: AsyncSession = Depends(get_db),
+):
+    """Create a disabled, private custom MCP connection to the preset's official endpoint (browser sign-in) and
+    mark it as a provider. The owner then signs in, tests and enables it with the custom MCP routes; nothing is
+    enabled, granted or assigned here."""
+    _no_store(response)
+    preset = _PRESETS[payload.preset]
+    created = await custom_mcp.create_connection(
+        CustomMcpCreate(name=payload.name or preset.label, endpoint=preset.endpoint, auth_mode="oauth"),
+        response, db)
+    await begin_write(db)
+    row = AgentServiceProvider(connection_id=created.id, provider=preset.preset, resource_limit=payload.resource_limit)
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return await _provider_out(db, row)
 
 
 # ---------------------------------------------------------------- providers
