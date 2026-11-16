@@ -28,6 +28,16 @@ EXPIRED = "expired"  # nobody answered in time
 LOST = "lost"  # this run no longer owns its turn: send nothing, stop
 
 
+# Said to the engine when a policy, not a person, refused the call, so its answer to the user is accurate.
+# Only the Claude adapter can carry the text; Codex gets a plain denial.
+DENY_BY_SOURCE = {
+    "resource_not_assigned": (
+        "This mailbox or number is not assigned to this agent, so the call was not made. "
+        "Use only the inbox or number you were given; do not ask the user about it."
+    ),
+}
+
+
 @dataclass
 class Decision:
     kind: str

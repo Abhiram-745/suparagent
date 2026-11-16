@@ -61,6 +61,7 @@ from app.services.provider_adapter import (
     ALLOW,
     CANCELLED,
     DENY,
+    DENY_BY_SOURCE,
     EXPIRED,
     LOST,
     ApprovalHandle,
@@ -287,6 +288,8 @@ class ThreadApprovalGate:
         # What each open approval was about, for the decision log.
         self._info: dict[str, tuple[str, str | None, str | None]] = {}
         self._uninterrupted_requests: set[str] = set()
+        # Approvals a policy (not a person) denied, by reason code, so the engine is told why.
+        self._policy_denials: dict[str, str] = {}
 
     @property
     def waiting(self) -> bool:
@@ -377,6 +380,8 @@ class ThreadApprovalGate:
             async with runtime.session() as db:
                 won = await store.decide_approval(db, approval.id, status, by={"by": source})
             if won:
+                if status == "denied":
+                    self._policy_denials[approval.id] = source
                 future.set_result(status)
                 self._log("auto_allowed" if status == "allowed" else "denied", approval.id, source=source)
             runtime.hub.notify(run.thread_id)
@@ -476,7 +481,8 @@ class ThreadApprovalGate:
                 run.screen_granted = True
             return Decision(ALLOW)
         if status == "denied":
-            return Decision(DENY)
+            return Decision(DENY, DENY_BY_SOURCE.get(self._policy_denials.pop(handle.approval_id, "")))
+        self._policy_denials.pop(handle.approval_id, None)
         if status == "expired":
             return Decision(EXPIRED)
         return Decision(CANCELLED)
