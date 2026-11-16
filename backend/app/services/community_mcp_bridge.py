@@ -15,6 +15,7 @@ import stat
 import sys
 import tempfile
 import uuid
+import uuid
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -26,7 +27,7 @@ from app import community_mcp, custom_mcp_oauth
 from app.core import tool_timeout
 from app.core.logging import get_logger
 from app.db.models import (
-    Agent, Approval, CommunityMcpConnection, CommunityMcpToolGrant, CustomMcpConnection, CustomMcpToolGrant,
+    Agent, AgentServiceAudit, Approval, CommunityMcpConnection, CommunityMcpToolGrant, CustomMcpConnection, CustomMcpToolGrant,
     Thread, Turn,
 )
 from app.services import user_credential_service
@@ -689,6 +690,21 @@ class CommunityMcpBridge:
                                 "code": "already_attempted"}
                     receipt_id = receipt.id
                 approval.consumed_at = team_service.now()
+                audit_id = None
+                service = item.get("service")
+                if service and service.get("resources"):
+                    # Which agent acted as which agent-owned address. No arguments or message text are kept.
+                    agent = await db.get(Agent, self.run.agent_id)
+                    audit_id = uuid.uuid4().hex
+                    db.add(AgentServiceAudit(
+                        id=audit_id, owner_id=self.runtime.owner_id, agent_id=self.run.agent_id,
+                        agent_name=(agent.name if agent is not None else "")[:100],
+                        connection_id=item["connection_id"], connection_name=str(item.get("name", ""))[:120],
+                        provider=str(service.get("provider", ""))[:32], tool_name=item["remote_name"][:200],
+                        resources=list(service["resources"]), outcome="dispatched",
+                        approved_by=(approval.decided_by_label or None) and approval.decided_by_label[:100],
+                        thread_id=self.run.thread_id, turn_id=self.run.turn_id,
+                    ))
                 # Consumption is durable before network dispatch. The per-service
                 # process lock prevents local revoke/key changes until this single
                 # call has returned; uncertain outcomes never restore approval.
@@ -706,6 +722,14 @@ class CommunityMcpBridge:
                             schema=item["schema_digest"][:12])
                 result = {"error": "The service did not confirm the result. The call may have run; check before retrying.",
                           "code": "outcome_unknown"}
+            if audit_id is not None:
+                async with self.runtime.session() as db:
+                    await begin_write(db)
+                    audit = await db.get(AgentServiceAudit, audit_id)
+                    if audit is not None:
+                        audit.outcome = ("outcome_unknown" if result.get("code") == "outcome_unknown" else
+                                         "failed" if result.get("error") or result.get("isError") else "completed")
+                        await db.commit()
             if receipt_id is not None:
                 async with self.runtime.session() as db:
                     await begin_write(db)

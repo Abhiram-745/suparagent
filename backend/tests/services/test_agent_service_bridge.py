@@ -3,9 +3,12 @@ from types import SimpleNamespace as NS
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
-from app.db.models import Agent, AgentServiceAssignment, AgentServiceProvider, AgentServiceResource
+from app import community_mcp
+from app.db.models import (
+    Agent, AgentServiceAssignment, AgentServiceAudit, AgentServiceProvider, AgentServiceResource,
+)
 from app.services import approval_modes, thread_store, tool_policy
 from app.services.agent_service_store import remove_provider_data
 from app.services.community_mcp_bridge import PREFIX, CommunityMcpBridge
@@ -137,5 +140,73 @@ async def test_a_denied_approval_never_reaches_the_provider(world, provider, ses
             await thread_store.decide_approval(db, row.id, "denied", by={"by": "person"})
         assert (await bridge.execute(alias, {"q": "x"}))["code"] == "not_approved"
         assert remote.calls == []
+    finally:
+        await bridge.close()
+
+
+@pytest.fixture
+async def audit_rows(sessions, owner):
+    async def rows():
+        async with sessions() as db:
+            return (await db.scalars(select(AgentServiceAudit).where(AgentServiceAudit.owner_id == owner))).all()
+    yield rows
+    async with sessions() as db:
+        await db.execute(delete(AgentServiceAudit).where(AgentServiceAudit.owner_id == owner))
+        await db.commit()
+
+
+async def test_an_approved_provider_call_is_recorded_without_its_arguments(world, provider, sessions, remote, audit_rows):
+    await assign(sessions, world[4].id, provider)
+    bridge = CommunityMcpBridge(world[0], world[1], await mounted(world))
+    try:
+        [alias] = bridge.aliases_allowed
+        await approve(sessions, world[1], alias, {"q": "the private message body"})
+        assert (await bridge.execute(alias, {"q": "the private message body"}))["content"][0]["text"] == "ok"
+        [row] = await audit_rows()
+        assert (row.agent_id, row.agent_name, row.provider, row.tool_name) == (world[4].id, "Tools", "agentmail", "lookup")
+        assert row.resources == ["helper@agentmail.to"] and row.outcome == "completed"
+        assert row.connection_id == world[3].id and row.thread_id == world[1].thread_id
+        stored = " ".join(str(getattr(row, column.name)) for column in AgentServiceAudit.__table__.columns)
+        assert "private message body" not in stored and "sk_custom_SECRET_value" not in stored
+    finally:
+        await bridge.close()
+
+
+async def test_a_call_that_was_not_approved_leaves_no_record(world, provider, sessions, remote, audit_rows):
+    await assign(sessions, world[4].id, provider)
+    bridge = CommunityMcpBridge(world[0], world[1], await mounted(world))
+    try:
+        [alias] = bridge.aliases_allowed
+        assert (await bridge.execute(alias, {"q": "x"}))["code"] == "not_approved"
+        assert await audit_rows() == []
+    finally:
+        await bridge.close()
+
+
+async def test_an_uncertain_outcome_is_recorded_as_such(world, provider, sessions, monkeypatch, audit_rows):
+    class Flaky(FakeRemote):
+        async def call_tool(self, name, arguments):
+            raise community_mcp.McpError("remote_unavailable", "lost", 502)
+
+    monkeypatch.setattr(community_mcp, "RemoteMcpSession", Flaky)
+    await assign(sessions, world[4].id, provider)
+    bridge = CommunityMcpBridge(world[0], world[1], await mounted(world))
+    try:
+        [alias] = bridge.aliases_allowed
+        await approve(sessions, world[1], alias, {"q": "x"})
+        assert (await bridge.execute(alias, {"q": "x"}))["code"] == "outcome_unknown"
+        [row] = await audit_rows()
+        assert row.outcome == "outcome_unknown"
+    finally:
+        await bridge.close()
+
+
+async def test_an_ordinary_connection_call_is_not_recorded(world, sessions, remote, audit_rows):
+    bridge = CommunityMcpBridge(world[0], world[1], await mounted(world))
+    try:
+        [alias] = bridge.aliases_allowed
+        await approve(sessions, world[1], alias, {"q": "x"})
+        assert (await bridge.execute(alias, {"q": "x"}))["content"][0]["text"] == "ok"
+        assert await audit_rows() == []
     finally:
         await bridge.close()

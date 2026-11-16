@@ -1,3 +1,25 @@
+CREATE TABLE agent_service_audit (
+	id VARCHAR(36) NOT NULL,
+	owner_id VARCHAR NOT NULL,
+	agent_id BIGINT NOT NULL,
+	agent_name VARCHAR(100) DEFAULT '' NOT NULL,
+	connection_id VARCHAR(36) NOT NULL,
+	connection_name VARCHAR(120) DEFAULT '' NOT NULL,
+	provider VARCHAR(32) NOT NULL,
+	tool_name VARCHAR(200) NOT NULL,
+	resources JSON NOT NULL,
+	outcome VARCHAR(20) NOT NULL,
+	approved_by VARCHAR(100),
+	thread_id BIGINT,
+	turn_id BIGINT,
+	created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+	PRIMARY KEY (id)
+);
+
+CREATE INDEX ix_agent_service_audit_agent ON agent_service_audit (agent_id);
+
+CREATE INDEX ix_agent_service_audit_owner_created ON agent_service_audit (owner_id, created_at);
+
 CREATE TABLE agent_service_provider (
 	connection_id VARCHAR(36) NOT NULL,
 	provider VARCHAR(32) NOT NULL,

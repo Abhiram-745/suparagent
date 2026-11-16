@@ -33,7 +33,9 @@ PLANNER_TABLES = {"work_board", "work_column", "work_item"}
 WORK_EXECUTION_TABLES = {"work_item_run", "work_item_event"}
 COMMUNITY_MCP_TABLES = {"community_mcp_connection", "community_mcp_tool_grant"}
 CUSTOM_MCP_TABLES = {"custom_mcp_connection", "custom_mcp_tool_grant", "custom_mcp_oauth_flow"}
-AGENT_SERVICE_TABLES = {"agent_service_provider", "agent_service_resource", "agent_service_assignment"}
+AGENT_SERVICE_TABLES = {
+    "agent_service_provider", "agent_service_resource", "agent_service_assignment", "agent_service_audit",
+}
 WORKFLOW_TABLES = {"workflow", "workflow_run"}
 PEOPLE_TABLES = {"person", "person_invite", "people_audit"}
 

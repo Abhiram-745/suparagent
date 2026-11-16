@@ -42,3 +42,17 @@ class AgentServiceResourceOut(BaseModel):
 
 class AgentServiceAssignRequest(BaseModel):
     agent_ids: list[int] = Field(max_length=100)
+
+
+class AgentServiceAuditOut(BaseModel):
+    id: str
+    agent_id: int
+    agent_name: str
+    connection_id: str
+    connection_name: str
+    provider: str
+    tool_name: str
+    resources: list[str]
+    outcome: Literal["dispatched", "completed", "failed", "outcome_unknown"]
+    approved_by: str | None
+    created_at: datetime

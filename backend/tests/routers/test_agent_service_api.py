@@ -2,10 +2,16 @@
 
 Everything starts empty: a provider has no resources, a resource has no agents, and an assignment
 alone grants no tool."""
-import pytest
-from sqlalchemy import select
+from uuid import uuid4
 
-from app.db.models import Agent, AgentServiceAssignment, AgentServiceProvider, AgentServiceResource, CustomMcpToolGrant
+import pytest
+from sqlalchemy import delete, select
+
+from app.db.models import (
+    Agent, AgentServiceAssignment, AgentServiceAudit, AgentServiceProvider, AgentServiceResource, CustomMcpConnection,
+    CustomMcpToolGrant,
+)
+from app.routers import custom_mcp
 from tests.routers.test_custom_mcp_api import (  # noqa: F401
     PATH, admin, agent_id, app, auth_settings, client, code_of, factory, login, make, owner, pairing_code,
     server, set_owner,
@@ -160,3 +166,68 @@ async def test_deleting_the_connection_removes_everything_held_under_it(admin, f
         assert (await db.scalars(select(AgentServiceProvider))).all() == []
         assert (await db.scalars(select(AgentServiceResource))).all() == []
         assert (await db.scalars(select(AgentServiceAssignment))).all() == []
+
+
+async def add_audit(factory, owner, connection_id, agent, outcome="completed", **extra):
+    async with factory() as db:
+        db.add(AgentServiceAudit(
+            id=uuid4().hex, owner_id=owner, agent_id=agent, agent_name="Helper", connection_id=connection_id,
+            connection_name="Mail", provider="agentmail", tool_name="send_message",
+            resources=["helper@agentmail.to"], outcome=outcome, **extra))
+        await db.commit()
+
+
+@pytest.fixture
+async def clean_audit(factory, owner):
+    yield
+    async with factory() as db:
+        await db.execute(delete(AgentServiceAudit).where(AgentServiceAudit.owner_id == owner))
+        await db.commit()
+
+
+async def test_the_audit_lists_calls_newest_first_and_can_be_narrowed_to_one_agent(admin, factory, owner, clean_audit):
+    conn = await provider(admin)
+    one, two = await named_agent(factory, owner, "One"), await named_agent(factory, owner, "Two")
+    await add_audit(factory, owner, conn["id"], one, outcome="failed")
+    await add_audit(factory, owner, conn["id"], two)
+    everything = (await admin.get(f"{API}/audit")).json()
+    assert len(everything) == 2 and everything[0]["resources"] == ["helper@agentmail.to"]
+    only = (await admin.get(f"{API}/audit", params={"agent_id": one})).json()
+    assert [row["outcome"] for row in only] == ["failed"]
+    assert len((await admin.get(f"{API}/audit", params={"limit": 1})).json()) == 1
+    assert "message" not in " ".join(everything[0]).lower().replace("send_message", "")
+
+
+async def test_the_audit_survives_removing_the_provider_the_connection_and_the_agent(admin, app, factory, owner, clean_audit):
+    conn = await provider(admin)
+    agent = await named_agent(factory, owner, "Gone")
+    await add_audit(factory, owner, conn["id"], agent)
+    assert (await admin.delete(f"{API}/providers/{conn['id']}")).status_code == 204
+    assert len((await admin.get(f"{API}/audit")).json()) == 1
+    assert (await admin.delete(f"{PATH}/connections/{conn['id']}")).status_code == 204
+    async with factory() as db:
+        await db.delete(await db.get(Agent, agent))
+        await db.commit()
+    # With the connection gone nobody can tell whose private one it was, so only the workspace owner reads it.
+    async def as_owner():
+        custom_mcp._actor_var.set(custom_mcp.Actor(person_id=None))
+
+    app.dependency_overrides[custom_mcp._bind_actor] = as_owner
+    try:
+        [row] = (await admin.get(f"{API}/audit")).json()
+        assert row["agent_name"] == "Helper" and row["connection_name"] == "Mail"
+    finally:
+        app.dependency_overrides.pop(custom_mcp._bind_actor, None)
+
+
+async def test_removing_the_provider_designation_also_drops_the_tool_grants_and_stops_running_turns(admin, factory, owner):
+    conn = await provider(admin)
+    agent = await named_agent(factory, owner, "Granted")
+    async with factory() as db:
+        db.add(CustomMcpToolGrant(agent_id=agent, connection_id=conn["id"], tool_name="send", schema_digest="d" * 64,
+                                  description="", input_schema={"type": "object"}))
+        await db.commit()
+    assert (await admin.delete(f"{API}/providers/{conn['id']}")).status_code == 204
+    async with factory() as db:
+        assert (await db.scalars(select(CustomMcpToolGrant))).all() == []
+        assert (await db.get(CustomMcpConnection, conn["id"])).revision == conn["revision"] + 1

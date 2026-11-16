@@ -4,7 +4,7 @@ from sqlalchemy import BigInteger, ForeignKey, Index, Integer, String, UniqueCon
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-from app.db.types import UTCDateTime
+from app.db.types import JSONValue, UTCDateTime
 
 
 class AgentServiceProvider(Base):
@@ -57,4 +57,34 @@ class AgentServiceAssignment(Base):
     resource_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("agent_service_resource.id", ondelete="CASCADE"), primary_key=True
     )
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, server_default=func.now(), nullable=False)
+
+
+class AgentServiceAudit(Base):
+    """Which agent called which provider tool as which agent-owned address, and when.
+
+    Deliberately holds no tool arguments, message text, tokens or credentials. No foreign keys: the
+    record outlives the agent, the resource and the connection, and names are copied as they were."""
+
+    __tablename__ = "agent_service_audit"
+    __table_args__ = (
+        Index("ix_agent_service_audit_owner_created", "owner_id", "created_at"),
+        Index("ix_agent_service_audit_agent", "agent_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String, nullable=False)
+    agent_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    agent_name: Mapped[str] = mapped_column(String(100), nullable=False, default="", server_default="")
+    connection_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    connection_name: Mapped[str] = mapped_column(String(120), nullable=False, default="", server_default="")
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    tool_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    # Addresses or numbers assigned to the agent when the call was made.
+    resources: Mapped[list] = mapped_column(JSONValue, nullable=False)
+    # dispatched (approved and sent), then completed, failed or outcome_unknown.
+    outcome: Mapped[str] = mapped_column(String(20), nullable=False)
+    approved_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    thread_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    turn_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, server_default=func.now(), nullable=False)

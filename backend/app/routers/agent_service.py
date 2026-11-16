@@ -9,16 +9,18 @@ assignment, and an assignment alone lets an agent call nothing.
 import re
 import uuid
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
     Agent,
     AgentServiceAssignment,
+    AgentServiceAudit,
     AgentServiceProvider,
     AgentServiceResource,
     CustomMcpConnection,
+    CustomMcpToolGrant,
 )
 from app.db.session import get_db
 from app.db.transactions import begin_write
@@ -27,6 +29,7 @@ from app.routers.custom_mcp import _bind_actor, _clean_name, _connection, _fail,
 from app.routers.integrations import _owner
 from app.schemas.agent_service import (
     AgentServiceAssignRequest,
+    AgentServiceAuditOut,
     AgentServiceProviderOut,
     AgentServiceProviderSet,
     AgentServiceResourceCreate,
@@ -151,10 +154,17 @@ async def set_provider(
 
 @router.delete("/providers/{connection_id}", status_code=204)
 async def clear_provider(connection_id: str, response: Response, db: AsyncSession = Depends(get_db)):
-    """Stop treating the connection as a provider; its resources and assignments go with it."""
+    """Stop treating the connection as a provider. Its resources, assignments and agent tool grants go
+    with it, so agents do not quietly keep using it as an ordinary connection; the connection stays and
+    the audit record is kept. A running turn stops at its next call (the revision changes)."""
     await _provider(db, connection_id)
     await begin_write(db)
     await remove_provider_data(db, connection_id)
+    await db.execute(delete(CustomMcpToolGrant).where(CustomMcpToolGrant.connection_id == connection_id))
+    connection = await db.scalar(select(CustomMcpConnection).where(
+        CustomMcpConnection.id == connection_id, CustomMcpConnection.owner_id == _owner_id()).with_for_update())
+    if connection is not None:
+        custom_mcp._bump(connection)
     await db.commit()
     return Response(status_code=204, headers={"Cache-Control": "no-store"})
 
@@ -251,3 +261,32 @@ async def resources_of_agent(agent_id: int, response: Response, db: AsyncSession
         AgentServiceAssignment.agent_id == agent_id, AgentServiceResource.owner_id == _owner_id(),
     ).order_by(AgentServiceResource.created_at, AgentServiceResource.id))).all()
     return [await _resource_out(db, row) for row in rows if row.connection_id in visible]
+
+
+# ---------------------------------------------------------------- audit
+
+@router.get("/audit", response_model=list[AgentServiceAuditOut])
+async def list_audit(
+    response: Response, agent_id: int | None = None, limit: int = Query(default=50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+):
+    """Newest first: which agent used which address or number through which provider, and how it ended.
+    Holds no message text or arguments. Calls through a private connection are visible only to its creator
+    (and, once the connection is gone, to the workspace owner)."""
+    _no_store(response)
+    actor = custom_mcp._actor_var.get()
+    visible = await _visible_connection_ids(db)
+    existing = set((await db.scalars(select(CustomMcpConnection.id).where(
+        CustomMcpConnection.owner_id == _owner_id()))).all())
+    query = select(AgentServiceAudit).where(AgentServiceAudit.owner_id == _owner_id())
+    if agent_id is not None:
+        query = query.where(AgentServiceAudit.agent_id == agent_id)
+    rows = (await db.scalars(query.order_by(AgentServiceAudit.created_at.desc(), AgentServiceAudit.id))).all()
+    shown = [row for row in rows if row.connection_id in visible
+             or (row.connection_id not in existing and (actor is None or actor.owner_like))]
+    return [AgentServiceAuditOut(
+        id=row.id, agent_id=row.agent_id, agent_name=row.agent_name, connection_id=row.connection_id,
+        connection_name=row.connection_name, provider=row.provider, tool_name=row.tool_name,
+        resources=[str(r) for r in (row.resources or [])], outcome=row.outcome, approved_by=row.approved_by,
+        created_at=row.created_at,
+    ) for row in shown[:limit]]
