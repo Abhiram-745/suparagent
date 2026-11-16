@@ -9,6 +9,8 @@
 - `SUPARAGENT_OAUTH_CALLBACK_ORIGIN` sets where a browser returns after signing in to a custom MCP server when the server is only reachable through a gateway (a hosted workspace). The custom server form shows the redirect address to register for a client you create yourself.
 - Grant an agent up to 500 tools from a custom MCP server. Above 25 granted tools the agent searches your granted tools and calls one by reference instead of receiving them all; calls still need approval. The grant list has a filter and "check shown".
 - The desktop app finishes browser sign-in through a short-lived loopback listener on 127.0.0.1 that answers only the sign-in return and closes after one success.
+- Give an agent its own email inbox or phone number from Apps → MCP Marketplace → Agent email and phone. Connect AgentMail or AgentPhone with browser sign-in on your own account, record the inboxes or numbers you already created there, and choose which agents get each one. A new connection, address or agent starts with no access. An agent is only offered the provider's tools while it has an address assigned, and a call that names a different AgentMail inbox is refused before any approval card; `list_inboxes` shows only the assigned ones. Every send still asks for your approval and names the address that would act. Recent activity lists which agent used which address and how it ended, without message text. Agents cannot create inboxes or numbers, and incoming mail or calls do not start an agent.
+- Stopping use of a provider removes its addresses and assignments and clears every agent's tool grants for that connection. When a policy refuses a call (for example an unassigned inbox), Claude is now told why instead of that you denied it.
 
 ## 0.8.6 - 2026-11-11
 

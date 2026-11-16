@@ -3,6 +3,7 @@ import type { TemplateCatalog, TemplateSkill } from "./templates";
 import type { ComposioAccount, ComposioApp, ComposioLink } from "./connected-apps";
 import type { MarketplaceCatalog, MarketplaceConnection, MarketplaceSection, MarketplaceTool } from "./marketplace";
 import type { CustomMcpConnection, CustomMcpDraft, CustomMcpTool } from "./custom-mcp";
+import type { ServiceAudit, ServiceKind, ServicePreset, ServiceProvider, ServiceResource } from "./agent-services";
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1";
 
@@ -1237,6 +1238,26 @@ export const api = {
     request<{ tool_names: string[] }>(`/integrations/custom-mcp/connections/${encodeURIComponent(id)}/agents/${agentId}/grants`, {
       method: "PUT", body: JSON.stringify({ revision, tools }),
     }),
+  listServicePresets: () => request<ServicePreset[]>("/integrations/agent-services/presets"),
+  listServiceProviders: () => request<ServiceProvider[]>("/integrations/agent-services/providers"),
+  addServiceProvider: (preset: string, resourceLimit: number) =>
+    request<ServiceProvider>("/integrations/agent-services/providers", { method: "POST", body: JSON.stringify({ preset, resource_limit: resourceLimit }) }),
+  setServiceProviderLimit: (connectionId: string, provider: string, resourceLimit: number) =>
+    request<ServiceProvider>(`/integrations/agent-services/providers/${encodeURIComponent(connectionId)}`, {
+      method: "PUT", body: JSON.stringify({ provider, resource_limit: resourceLimit }),
+    }),
+  clearServiceProvider: (connectionId: string) =>
+    request<void>(`/integrations/agent-services/providers/${encodeURIComponent(connectionId)}`, { method: "DELETE" }),
+  listServiceResources: () => request<ServiceResource[]>("/integrations/agent-services/resources"),
+  addServiceResource: (body: { connection_id: string; kind: ServiceKind; address: string; label: string }) =>
+    request<ServiceResource>("/integrations/agent-services/resources", { method: "POST", body: JSON.stringify(body) }),
+  deleteServiceResource: (id: string) =>
+    request<void>(`/integrations/agent-services/resources/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  assignServiceResource: (id: string, agentIds: number[]) =>
+    request<ServiceResource>(`/integrations/agent-services/resources/${encodeURIComponent(id)}/agents`, {
+      method: "PUT", body: JSON.stringify({ agent_ids: agentIds }),
+    }),
+  listServiceAudit: (limit = 20) => request<ServiceAudit[]>(`/integrations/agent-services/audit?limit=${limit}`),
   getDesktopSettings: () => request<DesktopSettings>("/settings"),
   saveDesktopSetting: (key: string, value: unknown, expectedVersion: number) =>
     request<ApplicationSetting>(`/settings/${encodeURIComponent(key)}`, {
