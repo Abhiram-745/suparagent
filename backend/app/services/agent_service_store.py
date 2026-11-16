@@ -14,20 +14,32 @@ async def remove_provider_data(db: AsyncSession, connection_id: str) -> None:
     await db.execute(delete(AgentServiceProvider).where(AgentServiceProvider.connection_id == connection_id))
 
 
+async def provider_resources(db: AsyncSession, agent_id: int, connection_ids: list[str]) -> dict[str, tuple[str, list[str]]]:
+    """For each of these connections that is a mailbox/number provider: (provider name, addresses assigned to the agent).
+
+    A connection nobody marked as a provider is absent. An empty address list means the agent has none."""
+    if not connection_ids:
+        return {}
+    providers = {row.connection_id: row.provider for row in (await db.scalars(select(AgentServiceProvider).where(
+        AgentServiceProvider.connection_id.in_(connection_ids)))).all()}
+    if not providers:
+        return {}
+    rows = (await db.execute(
+        select(AgentServiceResource.connection_id, AgentServiceResource.address)
+        .join(AgentServiceAssignment, AgentServiceAssignment.resource_id == AgentServiceResource.id)
+        .where(AgentServiceAssignment.agent_id == agent_id, AgentServiceResource.connection_id.in_(list(providers)))
+        .order_by(AgentServiceResource.created_at, AgentServiceResource.id)
+    )).all()
+    found: dict[str, list[str]] = {connection_id: [] for connection_id in providers}
+    for connection_id, address in rows:
+        found[connection_id].append(address)
+    return {connection_id: (providers[connection_id], found[connection_id]) for connection_id in providers}
+
+
 async def unassigned_providers(db: AsyncSession, agent_id: int, connection_ids: list[str]) -> set[str]:
     """Of these connections, the ones that are mailbox/number providers where the agent has no resource.
 
     A connection nobody marked as a provider is never in the result. Used at mount time and again on
     every call, so removing an assignment stops a running turn at its next call."""
-    if not connection_ids:
-        return set()
-    providers = set((await db.scalars(select(AgentServiceProvider.connection_id).where(
-        AgentServiceProvider.connection_id.in_(connection_ids)))).all())
-    if not providers:
-        return set()
-    assigned = set((await db.scalars(
-        select(AgentServiceResource.connection_id)
-        .join(AgentServiceAssignment, AgentServiceAssignment.resource_id == AgentServiceResource.id)
-        .where(AgentServiceAssignment.agent_id == agent_id, AgentServiceResource.connection_id.in_(providers))
-    )).all())
-    return providers - assigned
+    found = await provider_resources(db, agent_id, connection_ids)
+    return {connection_id for connection_id, (_provider, addresses) in found.items() if not addresses}

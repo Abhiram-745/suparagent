@@ -1,13 +1,15 @@
 """A mailbox/number provider's tools reach an agent only while one of its resources is assigned to it."""
+from types import SimpleNamespace as NS
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import delete
 
 from app.db.models import Agent, AgentServiceAssignment, AgentServiceProvider, AgentServiceResource
+from app.services import approval_modes, thread_store, tool_policy
 from app.services.agent_service_store import remove_provider_data
-from app.services.community_mcp_bridge import CommunityMcpBridge
-from tests.services.test_custom_mcp_bridge import FakeRemote, mounted, remote, world  # noqa: F401
+from app.services.community_mcp_bridge import PREFIX, CommunityMcpBridge
+from tests.services.test_custom_mcp_bridge import FakeRemote, approve, mounted, remote, world  # noqa: F401
 from tests.services.thread_harness import cleanup, owner, sessions  # noqa: F401
 
 
@@ -74,5 +76,66 @@ async def test_removing_the_assignment_stops_a_running_turn_before_its_next_call
         result = await bridge.execute(alias, {"q": "x"})
         assert result["code"] == "revoked"
         assert remote.built == [] and remote.calls == []
+    finally:
+        await bridge.close()
+
+
+async def test_the_approval_card_names_the_agent_owned_address_that_would_act(world, provider, sessions):
+    await assign(sessions, world[4].id, provider)
+    bridge = CommunityMcpBridge(world[0], world[1], await mounted(world))
+    try:
+        [alias] = bridge.aliases_allowed
+        summary = bridge.approval_summary(alias, {"q": "x"})
+        assert summary == "Custom MCP My server (tools.example.com): lookup | agent address: helper@agentmail.to"
+    finally:
+        await bridge.close()
+
+
+async def test_an_ordinary_connections_card_does_not_mention_an_agent_address(world):
+    bridge = CommunityMcpBridge(world[0], world[1], await mounted(world))
+    try:
+        [alias] = bridge.aliases_allowed
+        assert "agent address" not in bridge.approval_summary(alias, {"q": "x"})
+    finally:
+        await bridge.close()
+
+
+@pytest.mark.parametrize("mode", approval_modes.MODES)
+async def test_no_approval_mode_lets_a_provider_tool_run_without_a_card(world, provider, sessions, mode):
+    await assign(sessions, world[4].id, provider)
+    bridge = CommunityMcpBridge(world[0], world[1], await mounted(world))
+    try:
+        [alias] = bridge.aliases_allowed
+        run = NS(ctx=NS(media_review_only=False, draft_only=False, community_tools=[alias]))
+        decision = tool_policy.automatic(PREFIX + alias, mode, run, {"q": "x"})
+        assert decision is None or decision[0] == "denied"
+    finally:
+        await bridge.close()
+
+
+async def test_an_approval_for_one_recipient_does_not_cover_another(world, provider, sessions, remote):
+    await assign(sessions, world[4].id, provider)
+    bridge = CommunityMcpBridge(world[0], world[1], await mounted(world))
+    try:
+        [alias] = bridge.aliases_allowed
+        await approve(sessions, world[1], alias, {"q": "alice@example.com"})
+        assert (await bridge.execute(alias, {"q": "bob@example.com"}))["code"] == "not_approved"
+        assert remote.calls == []
+    finally:
+        await bridge.close()
+
+
+async def test_a_denied_approval_never_reaches_the_provider(world, provider, sessions, remote):
+    await assign(sessions, world[4].id, provider)
+    bridge = CommunityMcpBridge(world[0], world[1], await mounted(world))
+    try:
+        [alias] = bridge.aliases_allowed
+        async with sessions() as db:
+            row = await thread_store.create_approval(
+                db, thread_id=world[1].thread_id, turn_id=world[1].turn_id, request_id="d1", tool=PREFIX + alias,
+                input={"q": "x"}, summary="x", kind="other", owner_token=world[1].owner_token)
+            await thread_store.decide_approval(db, row.id, "denied", by={"by": "person"})
+        assert (await bridge.execute(alias, {"q": "x"}))["code"] == "not_approved"
+        assert remote.calls == []
     finally:
         await bridge.close()

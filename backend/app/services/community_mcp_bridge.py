@@ -30,7 +30,7 @@ from app.db.models import (
     Thread, Turn,
 )
 from app.services import user_credential_service
-from app.services.agent_service_store import unassigned_providers
+from app.services.agent_service_store import provider_resources, unassigned_providers
 
 logger = get_logger(__name__)
 
@@ -298,9 +298,9 @@ class CommunityMcpBridge:
         )).all()
         snapshot = []
         # A mailbox/number provider is mounted only for an agent that has one of its resources assigned.
-        withheld = await unassigned_providers(db, agent_id, sorted({connection.id for connection, _ in rows}))
+        services = await provider_resources(db, agent_id, sorted({connection.id for connection, _ in rows}))
         for connection, grant in rows:
-            if connection.id in withheld:
+            if connection.id in services and not services[connection.id][1]:
                 continue
             if connection.tested_revision != connection.revision or connection.tools_snapshot is None:
                 continue
@@ -332,6 +332,9 @@ class CommunityMcpBridge:
                 "manifest": {"slug": connection.id, "name": connection.name, "endpoint": connection.endpoint,
                              "auth_mode": connection.auth_mode, "auth_header_name": connection.auth_header_name},
                 "name": connection.name[:120],
+                # The agent-owned addresses this call would act as; shown on the approval card.
+                **({"service": {"provider": services[connection.id][0], "resources": services[connection.id][1][:5]}}
+                   if connection.id in services else {}),
                 "grant": {
                     "tool_name": grant.tool_name, "schema_digest": grant.schema_digest,
                     "input_schema": grant.input_schema, "description": grant.description,
@@ -369,7 +372,12 @@ class CommunityMcpBridge:
         if item.get("kind") == "custom":
             from urllib.parse import urlsplit
             host = urlsplit(str(item["manifest"].get("endpoint", ""))).hostname or "unknown host"
-            return f"Custom MCP {item['name']} ({host}): {item['remote_name']}"[:200]
+            text = f"Custom MCP {item['name']} ({host}): {item['remote_name']}"[:200]
+            service = item.get("service")
+            if service and service.get("resources"):
+                # An agent-owned mailbox or number: name it, so the owner sees which identity would act.
+                text += " | agent " + ("number" if service.get("provider") == "agentphone" else "address")                     + ": " + ", ".join(str(address)[:100] for address in service["resources"])
+            return text
         return f"{item['name']}: {item['remote_name']}"[:200]
 
     @property
