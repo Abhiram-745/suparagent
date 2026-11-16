@@ -9,6 +9,14 @@ from app.team import policy as teams
 FILE_WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit", "NotebookEdit"})
 
 
+def _inside(path, workspace):
+    try:
+        Path(path).resolve().relative_to(Path(workspace).resolve())
+    except (ValueError, OSError):
+        return False
+    return True
+
+
 def _full_access(tool, run, arguments):
     """Full access: the engine's own commands and workspace edits run without a card.
 
@@ -22,15 +30,17 @@ def _full_access(tool, run, arguments):
     if tool == "Bash":
         command = arguments.get("command")
         return ("allowed", "full_access") if isinstance(command, str) and safety_floor.clears_floor(command) else None
+    if tool == "apply_patch":
+        changes, workspace = arguments.get("changes"), getattr(run.ctx, "workspace", None)
+        paths = [c.get("path") for c in changes if isinstance(c, dict)] if isinstance(changes, list) else []
+        if not paths or workspace is None or arguments.get("grant_root") or not all(isinstance(p, str) and _inside(p, workspace) for p in paths):
+            return None
+        return "allowed", "full_access"
     if tool in FILE_WRITE_TOOLS:
         target, workspace = arguments.get("file_path") or arguments.get("notebook_path"), getattr(run.ctx, "workspace", None)
         if not isinstance(target, str) or workspace is None:
             return None
-        try:
-            Path(target).resolve().relative_to(Path(workspace).resolve())
-        except (ValueError, OSError):
-            return None
-        return "allowed", "full_access"
+        return ("allowed", "full_access") if _inside(target, workspace) else None
     return None
 
 

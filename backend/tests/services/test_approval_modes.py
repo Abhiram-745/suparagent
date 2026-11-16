@@ -27,9 +27,9 @@ def test_not_chosen_is_ask_and_full_access_is_never_the_default():
     assert cli_permission_mode("full_access") == "default"
 
 
-def test_full_access_is_offered_to_claude_only():
+def test_full_access_is_offered_to_claude_and_codex_only():
     assert "full_access" in modes_for_engine("claude")
-    assert "full_access" not in modes_for_engine("codex")
+    assert "full_access" in modes_for_engine("codex")
     assert "full_access" not in modes_for_engine("gemini")
 
 

@@ -7,7 +7,7 @@ the enforcing, so this app never re-implements what the CLI already decides.
     accept_edits file edits inside the workspace go through; the rest still asks
     approve_for_me the engine's native safety reviewer handles eligible requests
     plan         read-only: the CLI plans and edits nothing
-    full_access  commands and edits run without asking (Claude only), for work nobody is
+    full_access  commands and edits run without asking (Claude and Codex), for work nobody is
                  there to answer, such as routines. Opt-in per agent, never the default.
                  The safety floor, connected-app and marketplace grants, sign-ins and
                  call-time revocation still apply; see tool_policy.automatic.
@@ -18,7 +18,7 @@ the enforcing, so this app never re-implements what the CLI already decides.
 DEFAULT_MODE = "ask"
 MODES = ("ask", "accept_edits", "approve_for_me", "plan", "full_access")
 NATIVE_REVIEW_ENGINES = frozenset({"claude", "codex", "cursor"})
-FULL_ACCESS_ENGINES = frozenset({"claude"})
+FULL_ACCESS_ENGINES = frozenset({"claude", "codex"})
 
 # The CLI's --permission-mode value for each mode.
 _CLI_MODE = {

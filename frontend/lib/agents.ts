@@ -22,7 +22,7 @@ export const APPROVAL_MODES: { value: ApprovalMode; label: string; description: 
   {
     value: "full_access",
     label: "Full access",
-    description: "Claude runs commands and edits files in its workspace without asking, so routines can finish with nobody there. Dangerous commands, connected apps and sign-ins still need you.",
+    description: "Claude or Codex runs commands and edits files in its workspace without asking, so routines can finish with nobody there. Dangerous commands, connected apps and sign-ins still need you.",
   },
   {
     value: "plan",
@@ -33,7 +33,7 @@ export const APPROVAL_MODES: { value: ApprovalMode; label: string; description: 
 
 export function approvalModesForProvider(provider: string | null | undefined) {
   return APPROVAL_MODES.filter((mode) => (mode.value !== "approve_for_me" || provider === "claude" || provider === "codex" || provider === "cursor")
-    && (mode.value !== "full_access" || provider === "claude"));
+    && (mode.value !== "full_access" || provider === "claude" || provider === "codex"));
 }
 
 export function approvalModeLabel(mode: string): string {
