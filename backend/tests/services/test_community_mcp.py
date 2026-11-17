@@ -208,3 +208,64 @@ def test_the_no_op_property_names_rule_is_accepted_and_dropped_but_a_real_one_is
             "variables": {"type": "object", "propertyNames": rule}}}}
         with pytest.raises(McpError):
             _normalize_tool(strict)
+
+
+# ---- typed key/value maps (`additionalProperties` given as a schema), as AgentPhone's send_message/make_call use ----
+
+def _map_tool(extra, **more):
+    return {"name": "make_call", "inputSchema": {"type": "object", "required": ["to"], "properties": {
+        "to": {"type": "string"},
+        "variables": {"type": "object", "propertyNames": {"type": "string"}, "additionalProperties": extra, **more}}}}
+
+
+def test_a_map_of_text_values_is_accepted_and_its_values_are_checked():
+    tool = _normalize_tool(_map_tool({"type": "string", "maxLength": 5}))
+    schema = tool["inputSchema"]
+    assert schema["properties"]["variables"]["additionalProperties"]["type"] == "string"
+    validate_arguments(schema, {"to": "+1", "variables": {"name": "Ada", "city": "Paris"}})
+    for bad in ({"n": 5}, {"n": "toolong"}, {"n": None}, {"n": ["x"]}, {"n": {"a": "b"}}):
+        with pytest.raises(McpError):
+            validate_arguments(schema, {"to": "+1", "variables": bad})
+
+
+def test_an_empty_value_schema_means_any_value_like_true():
+    schema = _normalize_tool(_map_tool({}))["inputSchema"]
+    assert schema["properties"]["variables"]["additionalProperties"] is True
+    validate_arguments(schema, {"to": "+1", "variables": {"a": 1, "b": [1], "c": {"d": None}}})
+
+
+def test_listed_properties_keep_their_own_schema_and_only_unlisted_keys_use_the_map_schema():
+    tool = {"name": "t", "inputSchema": {"type": "object", "properties": {"count": {"type": "integer"}},
+                                        "additionalProperties": {"type": "string"}}}
+    schema = _normalize_tool(tool)["inputSchema"]
+    validate_arguments(schema, {"count": 3, "note": "hi"})
+    with pytest.raises(McpError):
+        validate_arguments(schema, {"count": "3"})
+    with pytest.raises(McpError):
+        validate_arguments(schema, {"count": 3, "note": 4})
+
+
+@pytest.mark.parametrize("extra", [
+    {"type": "string", "pattern": "^a+$"},          # a server-supplied regex is never run here
+    {"anyOf": [{"type": "string"}, {"type": "null"}]},
+    {"$ref": "#/definitions/x"},
+    {"type": "object", "additionalProperties": {"type": "string", "pattern": "x"}},
+    "string", 5, [],
+])
+def test_other_dynamic_shapes_are_still_refused(extra):
+    with pytest.raises(McpError):
+        _normalize_tool(_map_tool(extra))
+
+
+def test_a_map_value_schema_is_depth_limited_like_any_other():
+    nested = {"type": "string"}
+    for _ in range(community_mcp.MAX_DEPTH + 2):
+        nested = {"type": "object", "additionalProperties": nested}
+    with pytest.raises(McpError):
+        _normalize_tool(_map_tool(nested))
+
+
+def test_a_value_schema_on_a_non_object_is_refused():
+    with pytest.raises(McpError):
+        _normalize_tool({"name": "t", "inputSchema": {"type": "object", "properties": {
+            "x": {"type": "string", "additionalProperties": {"type": "string"}}}}})

@@ -353,7 +353,15 @@ def safe_schema(value: object, depth: int = 0) -> dict:
             raise McpError("unsupported_schema", "This tool has a required field without a schema.", 422)
         result["required"] = required
     additional = value.get("additionalProperties", True)
-    if not isinstance(additional, bool):
+    if additional == {}:
+        additional = True  # "any value", which is what `true` already means
+    elif isinstance(additional, dict):
+        # A key/value map ("variables": text to text). The value schema is read with the same rules as any other
+        # field, so it is bounded and has no regex, and every unlisted key's value is checked against it.
+        if kind != "object":
+            raise McpError("unsupported_schema", "This tool has schema fields that do not match its input type.", 422)
+        additional = safe_schema(additional, depth + 1)
+    elif not isinstance(additional, bool):
         raise McpError("unsupported_schema", "This tool uses unsupported dynamic input properties.", 422)
     result["additionalProperties"] = additional
     if kind == "array":
@@ -404,6 +412,11 @@ def validate_arguments(schema: dict, value: object, depth: int = 0) -> None:
         for name, child in props.items():
             if name in value:
                 validate_arguments(child, value[name], depth + 1)
+        extra = schema.get("additionalProperties")
+        if isinstance(extra, dict):
+            for name, item in value.items():
+                if name not in props:
+                    validate_arguments(extra, item, depth + 1)
     elif kind == "array":
         if len(value) > schema.get("maxItems", 1000) or len(value) < schema.get("minItems", 0):
             raise McpError("bad_arguments", "Tool arguments have an invalid array length.")
