@@ -5,7 +5,7 @@ import { api, ApiError } from "@/lib/api";
 import { centsToDollars, dollarsToCents, limitSourceLabel, saveFailureMessage, type SpendOverview } from "@/lib/spend";
 import { SettingsCard } from "./SettingsCard";
 
-// The owner's spending limits for paid marketplace tools, and each worker's month so far. Each limit says where its
+// The owner's spending limits for paid provider tools, and each worker's month so far. Each limit says where its
 // value comes from (settings, the server's environment or the default). If a server refuses a change, the page says so.
 export function SpendLimitsCard() {
   const [overview, setOverview] = useState<SpendOverview | null>(null);
@@ -60,7 +60,7 @@ export function SpendLimitsCard() {
   );
 
   return (
-    <SettingsCard title="Spending limits" description="Paid tools from connected apps, such as MuAPI data calls, are refused above these limits. Searches and estimates are free.">
+    <SettingsCard title="Spending limits" description="Paid provider calls, including direct MuAPI data calls, are refused above these limits. Searches and estimates are free.">
       {loadError && <p role="alert" className="text-xs text-danger">{loadError}</p>}
       {overview && (
         <div className="space-y-3">

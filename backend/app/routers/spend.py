@@ -1,4 +1,4 @@
-"""Spending limits for paid marketplace tools, and the per-worker scheduled paid use switch.
+"""Spending limits for paid provider tools, and the per-worker scheduled paid use switch.
 
 Owner only: these are the app's own settings, reached through the local access policy, never through an agent
 tool. Hiring, templates and team setup have no route to either the limits or the switch."""
@@ -98,7 +98,7 @@ async def change_limits(change: LimitsChange, db: AsyncSession = Depends(get_db)
 async def change_worker(agent_id: int, change: WorkerChange, rt: ThreadRuntime = Depends(get_runtime),
                         db: AsyncSession = Depends(get_db)):
     """Turn scheduled paid use on or off for one worker. On means scheduled runs may use this worker's paid
-    marketplace tools without waiting for approval, inside the limits above."""
+    provider tools without waiting for approval, inside the limits above."""
     agent = await db.get(Agent, agent_id)
     if agent is None or agent.owner_id != rt.owner_id or agent.archived_at is not None:
         raise HTTPException(404, "Agent not found.")

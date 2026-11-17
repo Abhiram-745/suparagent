@@ -1224,6 +1224,17 @@ export const api = {
     request<{ tool_names: string[] }>(`/integrations/marketplace/connections/${encodeURIComponent(connectionId)}/agents/${agentId}/grants`, {
       method: "PUT", body: JSON.stringify({ tools }),
     }),
+  // First-party MuAPI data API. The key stays in the backend's encrypted credential store.
+  getMuapiIntegration: () => request<{ configured: boolean }>("/integrations/muapi"),
+  saveMuapiIntegration: (apiKey: string) =>
+    request<{ configured: boolean }>("/integrations/muapi", { method: "PUT", body: JSON.stringify({ api_key: apiKey }) }),
+  deleteMuapiIntegration: () => request<void>("/integrations/muapi", { method: "DELETE" }),
+  getMuapiAgentGrants: (agentId: number) =>
+    request<{ tool_names: string[] }>(`/integrations/muapi/agents/${agentId}/grants`),
+  setMuapiAgentGrants: (agentId: number, tools: string[]) =>
+    request<{ tool_names: string[] }>(`/integrations/muapi/agents/${agentId}/grants`, {
+      method: "PUT", body: JSON.stringify({ tools }),
+    }),
   // Owner-added custom MCP servers. Secrets are write-only: no route ever returns one.
   listCustomMcp: () => request<CustomMcpConnection[]>("/integrations/custom-mcp/connections"),
   createCustomMcp: (draft: CustomMcpDraft) =>

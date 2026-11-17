@@ -18,19 +18,30 @@ export function WorkerGrants({ workers, suggestedTools }: { workers: HiredWorker
   const rows: Row[] = workers
     .map((worker) => ({ worker, tools: suggestedTools[worker.template_id] ?? [] }))
     .filter((row) => row.tools.length > 0);
+  const workerIds = rows.map((row) => row.worker.agent_id).join(",");
   const [limits, setLimits] = useState<SpendLimits | null>(null);
-  const [connectionId, setConnectionId] = useState<string | null | undefined>(undefined);
+  const [configured, setConfigured] = useState<boolean | null>(null);
   const [status, setStatus] = useState<Record<number, Status>>({});
 
   useEffect(() => {
     if (rows.length === 0) return;
     let live = true;
-    api.getSpend().then((overview) => { if (live) setLimits(overview.limits); }).catch(() => undefined);
-    api.listMarketplaceConnections()
-      .then((connections) => { if (live) setConnectionId(connections.find((c) => c.slug === "muapi" && c.credential_configured)?.id ?? null); })
-      .catch(() => { if (live) setConnectionId(null); });
+    Promise.all([api.getMuapiIntegration(), api.getSpend()]).then(async ([integration, overview]) => {
+      const grants = await Promise.all(rows.map(async (row) => {
+        try { return [row.worker.agent_id, (await api.getMuapiAgentGrants(row.worker.agent_id)).tool_names] as const; }
+        catch { return [row.worker.agent_id, []] as const; }
+      }));
+      if (!live) return;
+      setConfigured(integration.configured);
+      setLimits(overview.limits);
+      setStatus(Object.fromEntries(rows.map((row) => {
+        const existing = grants.find(([id]) => id === row.worker.agent_id)?.[1] ?? [];
+        const worker = overview.workers.find((item) => item.agent_id === row.worker.agent_id);
+        return [row.worker.agent_id, { ...NEW_STATUS, granted: row.tools.every((name) => existing.includes(name)), paidUse: worker?.scheduled_paid_use ?? false }];
+      })));
+    }).catch(() => { if (live) setConfigured(false); });
     return () => { live = false; };
-  }, [rows.length]);
+  }, [workerIds]);
 
   if (rows.length === 0) return null;
 
@@ -38,14 +49,11 @@ export function WorkerGrants({ workers, suggestedTools }: { workers: HiredWorker
     setStatus((now) => ({ ...now, [agentId]: { ...(now[agentId] ?? NEW_STATUS), ...change } }));
 
   const grant = async (row: Row) => {
-    if (!connectionId) return;
+    if (!configured) return;
     const id = row.worker.agent_id;
     update(id, { busy: true, error: null });
     try {
-      const discovered = await api.discoverMarketplaceTools(connectionId);
-      const wanted = discovered.filter((tool) => row.tools.includes(tool.name));
-      if (wanted.length === 0) throw new Error("MuAPI does not list these tools yet, so nothing was granted.");
-      await api.saveMarketplaceAgentGrants(connectionId, id, wanted.map((tool) => ({ name: tool.name, schema_digest: tool.schema_digest })));
+      await api.setMuapiAgentGrants(id, row.tools);
       update(id, { granted: true, busy: false });
     } catch (e) {
       update(id, { busy: false, error: e instanceof ApiError || e instanceof Error ? e.message : "Could not grant the tools." });
@@ -67,12 +75,12 @@ export function WorkerGrants({ workers, suggestedTools }: { workers: HiredWorker
     <section aria-label="Tools and spending" className="space-y-3 border-t border-line pt-3">
       <h4 className="text-xs font-medium uppercase tracking-wide text-muted">Let your workers use MuAPI</h4>
       <p className="text-xs text-muted">
-        Workers can search and estimate for free. Paid calls cost MuAPI credits and are refused above{" "}
+        Workers can search, inspect and estimate for free. Paid calls cost MuAPI credits and are refused above{" "}
         {limits ? limitsSentence(limits) : "your spending limits"}. Nothing is granted until you click.
       </p>
-      {connectionId === null && (
+      {configured === false && (
         <p className="text-xs text-muted">
-          Connect your MuAPI account first. <Link href="/marketplace/" className="underline">Open the marketplace</Link>, then come back to Agents to grant tools.
+          Connect MuAPI directly first. <Link href="/settings/integrations/" className="underline">Open Integration settings</Link>, then return to grant tools.
         </p>
       )}
       <ul className="space-y-2">
@@ -87,7 +95,7 @@ export function WorkerGrants({ workers, suggestedTools }: { workers: HiredWorker
                 ) : (
                   <button
                     type="button"
-                    disabled={s.busy || !connectionId}
+                    disabled={s.busy || !configured}
                     onClick={() => void grant(row)}
                     className="cursor-pointer rounded-md border border-line px-2 py-0.5 font-medium hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50"
                   >
