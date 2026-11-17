@@ -122,6 +122,11 @@ def codex_policy(mode: str | None, tools: bool, computer: bool = False) -> Codex
         # Nothing of Codex's own may touch this machine; MCP calls are asked about
         # through their own approval mode, not this sandbox.
         return CodexPolicy("untrusted", "read-only", "readOnly", "user")
+    if mode == "full_access":
+        # Codex still asks this app about each command and patch, so the safety floor and approval
+        # log apply (tool_policy.automatic). Its own sandbox is lifted so a command can use the
+        # network and the whole hosted sandbox, which is the boundary there.
+        return CodexPolicy("untrusted", "danger-full-access", "dangerFullAccess", "user")
     if mode == "approve_for_me":
         # OpenMausBot's native reviewer mode: Codex reviews requests while its
         # workspace-write sandbox and on-request approval policy stay enabled.

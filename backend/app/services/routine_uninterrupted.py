@@ -163,6 +163,12 @@ async def automatic(runtime, run, tool: str, arguments: dict):
                     return "denied", "routine_marketplace_grant_revoked"
                 if run.ctx.approval_mode == "plan":
                     return "denied", "plan_mode"
+                from app.services import spend
+                worker = await db.get(Agent, run.agent_id)
+                if spend.is_guarded(grant.input_schema) and not (worker is not None and worker.scheduled_paid_use):
+                    # A paid tool waits for a person's approval unless the owner switched on scheduled paid use for
+                    # this worker. With it on, the spending limits still apply on every call.
+                    return None
     except Exception:
         return "denied", "routine_uninterrupted_check_failed"
     return "allowed", "routine_uninterrupted_grant"

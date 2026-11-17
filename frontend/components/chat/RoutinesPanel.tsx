@@ -1,5 +1,6 @@
 "use client";
 
+import { outcomeLabel, pauseReasonLabel, spendLine } from "@/lib/spend";
 import { Select } from "@/components/ui/Select";
 
 import { Dialog } from "@/components/ui/Dialog";
@@ -121,7 +122,7 @@ function draftOf(routine: Routine, provider?: string): Draft {
   return {
     id: routine.id, name: routine.name, agentId: routine.agent_id, prompt: routine.prompt,
     schedule: scheduleDraftOf(routine), runLimit: String(routine.run_limit_minutes),
-    approvalMode: routine.approval_mode === "approve_for_me" && !approvalModesForProvider(provider).some((mode) => mode.value === "approve_for_me") ? "ask" : routine.approval_mode,
+    approvalMode: !approvalModesForProvider(provider).some((mode) => mode.value === routine.approval_mode) ? "ask" : routine.approval_mode,
     approvalWait: String(routine.approval_timeout_minutes),
     catchUp: String(routine.catch_up_minutes), retryLimit: String(routine.retry_limit),
     quietReporting: routine.quiet_reporting ?? false,
@@ -282,6 +283,8 @@ function RunHistory({ routine, onClose, onOpen }: { routine: Routine; onClose: (
                 </button>
               </div>
               {run.outcome === "no_change" && <p className="mt-1 text-xs text-muted">No changes · checks retained in history</p>}
+              {run.outcome === "partial" && <p className="mt-1 text-xs text-warning">{outcomeLabel("partial")}</p>}
+              {spendLine(run.outcome_details) && <p className="mt-1 text-xs text-muted">{spendLine(run.outcome_details)}</p>}
               {(run.error || run.result) && (
                 <p className={`mt-1 line-clamp-3 whitespace-pre-wrap text-xs ${run.error ? "text-danger" : "text-muted"}`}>{run.error || run.result}</p>
               )}
@@ -582,7 +585,7 @@ export function RoutinesPanel({ agents, onClose, routineId = null }: { agents: A
                           {routine.webhook_enabled && <span className="rounded bg-hover px-1.5 text-xs">webhook</span>}
                         </div>
                         <p className="text-xs text-muted">{routine.schedule_kind === "manual" ? routine.summary : `${routine.summary} · ${nextRunText(routine)}`}</p>
-                        {routine.paused_reason && <p className="text-xs text-warning">{routine.paused_reason}</p>}
+                        {routine.paused_reason && <p className="text-xs text-warning">{pauseReasonLabel(routine.paused_reason)}</p>}
                         {routine.latest_run && (
                           <p className="mt-1 flex flex-wrap items-center gap-2 text-xs">
                             <span className="text-muted">Latest:</span>

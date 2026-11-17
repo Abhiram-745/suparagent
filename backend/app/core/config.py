@@ -124,6 +124,11 @@ class Settings(BaseSettings):
     LOCAL_TOOLS_ENABLED: bool = False
     # An approval nobody answers within this time is denied.
     LOCAL_APPROVAL_TIMEOUT_SECONDS: int = 300
+    # Spending limits for paid marketplace tools, in US cents (docs/TEMPLATES.md). A tool is paid when its input
+    # takes max_cost_usd. 0 refuses every paid call. Only the owner changes these, never an agent.
+    SPEND_PER_CALL_CENTS: int = 50
+    SPEND_PER_RUN_CENTS: int = 200
+    SPEND_PER_WORKER_MONTH_CENTS: int = 2000
 
     # Owner authentication (docs/AUTH.md). Host names this server answers to,
     # comma-separated; a request with any other Host header is refused (DNS

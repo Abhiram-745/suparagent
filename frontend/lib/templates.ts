@@ -1,6 +1,19 @@
 
 export type TemplateSkill = { name: string; description: string; body: string };
 
+export type TemplateRoutine = {
+  id: string;
+  skill: string;
+  days: string[];
+  window: string;
+  budget_minutes: number;
+  note: string;
+  // Always false: choosing a template never creates or switches on a routine.
+  enabled_after_install: boolean;
+};
+
+export type SetupDepth = "express" | "standard" | "guided";
+
 export type AgentTemplate = {
   id: string;
   name: string;
@@ -12,8 +25,14 @@ export type AgentTemplate = {
   example_requests: string[];
   requires: string[];
   available: boolean;
+  // Required connections not ready in this workspace; empty when everything is ready.
+  missing: string[];
   starter_notes: string | null;
   skills: TemplateSkill[];
+  routines: TemplateRoutine[];
+  suggested_tools: string[];
+  setup_depth: SetupDepth;
+  setup_text: string | null;
 };
 
 export type TemplateCatalog = { version: number; categories: string[]; templates: AgentTemplate[] };
@@ -24,6 +43,7 @@ export const CATEGORY_LABELS: Record<string, string> = {
   writing: "Writing",
   design: "Design",
   sales: "Sales",
+  marketing: "Marketing",
   personal: "Personal",
 };
 
@@ -55,8 +75,42 @@ export function uniqueAgentName(name: string, taken: Iterable<string>, max = 80)
   }
 }
 
+const REQUIREMENT_LABELS: Record<string, string> = { muapi: "MuAPI" };
+
 export function requirementLabel(requirement: string): string {
-  return requirement.charAt(0).toUpperCase() + requirement.slice(1);
+  return REQUIREMENT_LABELS[requirement] ?? requirement.charAt(0).toUpperCase() + requirement.slice(1);
+}
+
+// Where a missing connection is set up inside the app. A requirement with no entry cannot be connected yet.
+const CONNECT_PATHS: Record<string, string> = { muapi: "/marketplace/" };
+
+export type RequirementBadge = { requirement: string; text: string; connectHref: string | null };
+
+// How each requirement of a template reads on its card: "Needs MuAPI · Connect" while a connectable one is missing
+// (Add stays enabled), "Needs Email · not available yet" for one that cannot be connected, and plain "Needs X"
+// once it is ready.
+export function requirementBadges(template: AgentTemplate): RequirementBadge[] {
+  const missing = new Set(template.missing ?? (template.available ? [] : template.requires));
+  return template.requires.map((requirement) => {
+    const label = `Needs ${requirementLabel(requirement)}`;
+    if (!missing.has(requirement)) return { requirement, text: label, connectHref: null };
+    const connectHref = CONNECT_PATHS[requirement] ?? null;
+    return connectHref
+      ? { requirement, text: `${label} · Connect`, connectHref }
+      : { requirement, text: `${label} · not available yet`, connectHref: null };
+  });
+}
+
+export const SETUP_DEPTH_LABELS: Record<SetupDepth, string> = {
+  express: "Express setup",
+  standard: "Standard setup",
+  guided: "Guided setup",
+};
+
+// "2 starter routines (paused)": routines a template describes. Choosing a template creates none of them.
+export function starterRoutinesLabel(routines: TemplateRoutine[]): string | null {
+  if (routines.length === 0) return null;
+  return `${routines.length} starter routine${routines.length === 1 ? "" : "s"} (paused)`;
 }
 
 export type SkillInstallResult = { installed: string[]; failed: string[]; unsupported: boolean };
@@ -91,4 +145,61 @@ export function skillInstallNotice(result: SkillInstallResult): string | null {
   if (result.failed.length === 0) return null;
   if (result.unsupported) return "The agent was created, but this version has no skills library, so the suggested skills were not added.";
   return `The agent was created, but these skills were not added: ${result.failed.join(", ")}.`;
+}
+
+export type HiredRoutine = { template_routine_id: string; routine_id: number; name: string; paused: boolean };
+export type HiredWorker = { template_id: string; agent_id: number; name: string; skills: string[]; routines: HiredRoutine[] };
+export type HireReceipt = { workers: HiredWorker[] };
+
+// The most workers one hire may add; the server enforces the same limit.
+export const MAX_HIRE = 8;
+
+// Templates grouped by category, in the catalog's category order, skipping empty groups.
+export function groupByCategory(templates: AgentTemplate[], categories: string[]): { category: string; templates: AgentTemplate[] }[] {
+  const order = [...categories, ...templates.map((t) => t.category).filter((c) => !categories.includes(c))];
+  return [...new Set(order)]
+    .map((category) => ({ category, templates: templates.filter((t) => t.category === category) }))
+    .filter((group) => group.templates.length > 0);
+}
+
+// Tick or untick one worker. Ticking past the limit changes nothing.
+export function toggleChoice(chosen: string[], id: string): string[] {
+  if (chosen.includes(id)) return chosen.filter((item) => item !== id);
+  return chosen.length >= MAX_HIRE ? chosen : [...chosen, id];
+}
+
+// Only workers the server will accept can stay ticked (for example after the list reloads).
+export function hireableChoices(chosen: string[], templates: AgentTemplate[]): string[] {
+  const ok = new Set(templates.filter((t) => t.available).map((t) => t.id));
+  return chosen.filter((id) => ok.has(id));
+}
+
+// Templates that already have an agent made from them. A worker counts as added when an agent still carries the
+// template's exact instructions and role line, so an agent the person has since rewritten no longer counts.
+export function addedTemplateIds(
+  agents: { instructions?: string | null; title?: string | null }[],
+  templates: AgentTemplate[],
+): string[] {
+  return templates
+    .filter((t) => t.instructions.trim() !== "" && agents.some((a) => (a.instructions ?? "") === t.instructions && (a.title ?? "") === t.role))
+    .map((t) => t.id);
+}
+
+export function hireSummary(receipt: HireReceipt): string {
+  const names = receipt.workers.map((w) => w.name).join(", ");
+  const count = receipt.workers.length;
+  return `Added ${count} worker${count === 1 ? "" : "s"}: ${names}. Their routines are paused until you switch them on.`;
+}
+
+export type SuggestGoal = { key: string; label: string };
+export type Suggestion = { template_id: string; reason: string };
+
+// The tick set "Help me choose" proposes: suggested workers the server would accept, in suggestion
+// order, within the hire limit. It only proposes; the person edits the ticks and confirms.
+export function preTick(suggestions: Suggestion[], templates: AgentTemplate[]): string[] {
+  return hireableChoices(suggestions.map((s) => s.template_id), templates).slice(0, MAX_HIRE);
+}
+
+export function suggestionReasons(suggestions: Suggestion[]): Record<string, string> {
+  return Object.fromEntries(suggestions.map((s) => [s.template_id, s.reason]));
 }

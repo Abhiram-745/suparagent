@@ -1,5 +1,6 @@
 import type { SkillDoc, SkillPreview, SkillSave, SkillSummary, SkillLearnPreview, SkillLearnSource } from "./skills";
-import type { TemplateCatalog, TemplateSkill } from "./templates";
+import type { SpendLimits, SpendOverview, WorkerSpend } from "./spend";
+import type { HireReceipt, SuggestGoal, Suggestion, TemplateCatalog, TemplateSkill } from "./templates";
 import type { ComposioAccount, ComposioApp, ComposioLink } from "./connected-apps";
 import type { MarketplaceCatalog, MarketplaceConnection, MarketplaceSection, MarketplaceTool } from "./marketplace";
 import type { CustomMcpConnection, CustomMcpDraft, CustomMcpTool } from "./custom-mcp";
@@ -386,7 +387,7 @@ export type PermissionAsk = {
   answered_at: string | null;
 };
 
-export type ApprovalMode = "ask" | "accept_edits" | "approve_for_me" | "plan";
+export type ApprovalMode = "ask" | "accept_edits" | "approve_for_me" | "plan" | "full_access";
 
 // An agent's own isolated machine (a Docker container) where its turns run
 // their commands and file edits. Older backends never send these fields.
@@ -736,6 +737,15 @@ export type MemorySettings = {
   helper_active?: { engine: string; model: string | null; source: "environment" | "settings" } | null;
 };
 export type LearnedFact = { id: string; text: string; line: string; agent_id: number | null; agent_name: string; at: number };
+// The workspace's business profile: one short note per field that every agent reads and only the person writes.
+export type BusinessProfile = {
+  fields: Record<string, string>;
+  hash: string;
+  limits: Record<string, number>;
+  labels: Record<string, string>;
+  updated_at: number;
+  empty: boolean;
+};
 export type AboutMe = { text: string; hash: string; learned: LearnedFact[]; max_chars: number; redacted?: number };
 export type MemoryProposal = {
   id: string;
@@ -904,7 +914,7 @@ export type RoutineRun = {
   scheduled_for: string | null;
   thread_id: number | null;
   turn_id: number | null;
-  outcome?: "no_change" | "report" | "unknown" | "source_failed" | "failed" | "interrupted" | null;
+  outcome?: "no_change" | "report" | "unknown" | "source_failed" | "failed" | "interrupted" | "partial" | null;
   outcome_details?: Record<string, unknown> | null;
   result: string | null;
   error: string | null;
@@ -1390,6 +1400,21 @@ export const api = {
 
   // Ready-made agents (/templates): a bundled, read-only catalog.
   listTemplates: () => request<TemplateCatalog>("/templates"),
+  // Spending limits for paid tools. Owner only; changing the limits works in the desktop app (404 elsewhere).
+  getSpend: () => request<SpendOverview>("/spend-limits"),
+  saveSpendLimits: (limits: SpendLimits) => request<SpendLimits>("/spend-limits", { method: "PUT", body: JSON.stringify(limits) }),
+  setWorkerPaidUse: (agentId: number, scheduledPaidUse: boolean) =>
+    request<WorkerSpend>(`/spend-limits/workers/${agentId}`, { method: "PUT", body: JSON.stringify({ scheduled_paid_use: scheduledPaidUse }) }),
+  hireTemplates: (templateIds: string[], provider?: string, model?: string | null) =>
+    request<HireReceipt>("/templates/hire", { method: "POST", body: JSON.stringify({ template_ids: templateIds, ...(provider ? { provider } : {}), ...(model ? { model } : {}) }) }),
+  suggestGoals: () => request<SuggestGoal[]>("/templates/suggest/goals"),
+  suggestTemplates: (goals: string[], about: string, maxSetup: "express" | "guided") =>
+    request<{ suggestions: Suggestion[] }>("/templates/suggest", {
+      method: "POST",
+      body: JSON.stringify({ goals, about, max_setup: maxSetup }),
+    }),
+  undoHire: (agentIds: number[]) =>
+    request<{ removed: number[] }>("/templates/hire/undo", { method: "POST", body: JSON.stringify({ agent_ids: agentIds }) }),
 
   // A template's suggested skill, saved on the new agent after it exists. An older
   // backend with no skills library answers 404.
@@ -1448,6 +1473,15 @@ export const api = {
 
   saveMemorySettings: (change: Partial<MemorySettings>) =>
     request<MemorySettings>("/memory/settings", { method: "PUT", body: JSON.stringify(change) }),
+
+  businessProfile: () => request<BusinessProfile>("/business-profile"),
+
+  // `expectedHash` is the hash of the profile that was opened; a stale one is a 409 (code profile_changed).
+  saveBusinessProfile: (fields: Record<string, string>, expectedHash: string | null) =>
+    request<BusinessProfile>("/business-profile", {
+      method: "PUT",
+      body: JSON.stringify(expectedHash ? { fields, expected_hash: expectedHash } : { fields }),
+    }),
 
   aboutMe: () => request<AboutMe>("/memory/about-me"),
 

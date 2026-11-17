@@ -36,6 +36,7 @@ import { accountScopesToSend, scopesToSend, supportsConnectedApps, type AccountS
 import { ComputerView } from "./ComputerPanel";
 import { EngineModelFields } from "./EngineModelFields";
 import { MemoryPanel } from "./MemoryPanel";
+import { ChooseTeam } from "./ChooseTeam";
 import { TemplateSkillChoices, TemplatesGallery } from "./TemplatesGallery";
 import { installTemplateSkills, skillInstallNotice, uniqueAgentName, type AgentTemplate } from "@/lib/templates";
 import { useSession } from "@/components/AuthGate";
@@ -106,7 +107,7 @@ function toDraft(agent: Agent): Draft {
     model: agent.model,
     effort: agent.effort ?? null,
     workspace_path: agent.workspace_path ?? "",
-    approval_mode: agent.approval_mode === "approve_for_me" && !approvalModesForProvider(agent.provider).some((mode) => mode.value === "approve_for_me") ? "ask" : agent.approval_mode,
+    approval_mode: !approvalModesForProvider(agent.provider).some((mode) => mode.value === agent.approval_mode) ? "ask" : agent.approval_mode,
     memory_enabled: agent.memory_enabled ?? true,
     fallback_provider: agent.fallback_provider ?? null,
     fallback_model: agent.fallback_model ?? null,
@@ -232,6 +233,8 @@ export function AgentsPanel({
 }) {
   // The template browser, and the template (with the suggested skills still ticked) the form was filled from.
   const [gallery, setGallery] = useState(false);
+  // "Hire several": the multi-select version of the gallery, which adds the ticked workers in one step.
+  const [hireSeveral, setHireSeveral] = useState(false);
   const [fromTemplate, setFromTemplate] = useState<{ template: AgentTemplate; skills: string[] } | null>(null);
   const [draft, setDraft] = useState<Draft | null>(() => initialEditAgent ? toDraft(initialEditAgent) : startCreating ? EMPTY : null);
   const [originalDraft, setOriginalDraft] = useState<Draft | null>(() => initialEditAgent ? toDraft(initialEditAgent) : startCreating ? EMPTY : null);
@@ -973,8 +976,17 @@ export function AgentsPanel({
             </form>
           ) : gallery ? (
             <div className="space-y-3">
-              <TemplatesGallery onAdd={addTemplate} />
-              <button type="button" onClick={back} className={BUTTON}>
+              {hireSeveral ? (
+                <ChooseTeam skipLabel="Skip · back to templates" onSkip={() => setHireSeveral(false)} onHired={onChanged} onUndone={onChanged} />
+              ) : (
+                <>
+                  <button type="button" onClick={() => setHireSeveral(true)} className={BUTTON}>
+                    Hire several
+                  </button>
+                  <TemplatesGallery onAdd={addTemplate} />
+                </>
+              )}
+              <button type="button" onClick={() => { setHireSeveral(false); back(); }} className={BUTTON}>
                 Back to agents
               </button>
             </div>

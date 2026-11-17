@@ -30,8 +30,7 @@ from app.db.models import (
     Agent, AgentServiceAudit, Approval, CommunityMcpConnection, CommunityMcpToolGrant, CustomMcpConnection, CustomMcpToolGrant,
     Thread, Turn,
 )
-from app.services import user_credential_service
-from app.services import agent_service_policy
+from app.services import agent_service_policy, spend, user_credential_service
 from app.services.agent_service_store import provider_identifiers, provider_resources, unassigned_providers
 
 logger = get_logger(__name__)
@@ -697,6 +696,19 @@ class CommunityMcpBridge:
                 if approval is None:
                     await db.rollback()
                     return None
+                ledger_id = None
+                if spend.is_guarded(item["input_schema"]):
+                    # A paid tool: its cap is checked against the owner's limits before the approval is used up.
+                    routine_run_id = getattr(self.run, "routine_run_id", None)
+                    row, refusal = await spend.reserve(
+                        db, owner_id=self.runtime.owner_id, agent_id=self.run.agent_id,
+                        run_key=f"routine:{routine_run_id}" if routine_run_id is not None else f"turn:{self.run.turn_id}",
+                        routine_run_id=routine_run_id, tool=item["remote_name"],
+                        cap_cents=spend.to_cents(arguments.get(spend.GUARD_ARGUMENT)))
+                    if refusal is not None:
+                        await db.commit()
+                        return {"error": spend.REFUSAL_TEXT[refusal], "code": "spend_limit", "reason": refusal}
+                    ledger_id = row.id
                 if getattr(self.run, "uninterrupted_access", False):
                     # These tools have unknown effects. A fresh automatic
                     # approval cannot replay an identical call in this run.
@@ -732,6 +744,7 @@ class CommunityMcpBridge:
                 # call has returned; uncertain outcomes never restore approval.
                 await db.commit()
             if self.run.ctx.aborted:
+                await self._settle_spend(ledger_id, None, released=True)
                 return None
             try:
                 try:
@@ -752,6 +765,7 @@ class CommunityMcpBridge:
                         audit.outcome = ("outcome_unknown" if result.get("code") == "outcome_unknown" else
                                          "failed" if result.get("error") or result.get("isError") else "completed")
                         await db.commit()
+            await self._settle_spend(ledger_id, result)
             if receipt_id is not None:
                 async with self.runtime.session() as db:
                     await begin_write(db)
@@ -763,6 +777,19 @@ class CommunityMcpBridge:
                         receipt.result = {"completed": True} if receipt.status == "completed" else None
                         await db.commit()
             return result
+
+    async def _settle_spend(self, ledger_id: int | None, result, *, released: bool = False) -> None:
+        """Close a paid call's ledger row: at the cost the service reported, else at the cap it reserved."""
+        if ledger_id is None:
+            return
+        from app.db.transactions import begin_write
+        async with self.runtime.session() as db:
+            await begin_write(db)
+            if released:
+                await spend.release(db, ledger_id)
+            else:
+                await spend.settle(db, ledger_id, spend.reported_cost(result))
+            await db.commit()
 
     async def execute(self, alias: str, arguments: dict, *, via_broker: bool = False) -> dict:
         item = self.aliases.get(alias)
