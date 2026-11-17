@@ -1,5 +1,5 @@
 import type { SkillDoc, SkillPreview, SkillSave, SkillSummary, SkillLearnPreview, SkillLearnSource } from "./skills";
-import type { SpendLimits, SpendOverview, WorkerSpend } from "./spend";
+import type { SpendLimits, SpendLimitsChange, SpendOverview, WorkerSpend } from "./spend";
 import type { HireReceipt, LatestSuggestion, SuggestGoal, Suggestion, TemplateCatalog, TemplateSkill } from "./templates";
 import type { ComposioAccount, ComposioApp, ComposioLink } from "./connected-apps";
 import type { MarketplaceCatalog, MarketplaceConnection, MarketplaceSection, MarketplaceTool } from "./marketplace";
@@ -1392,7 +1392,7 @@ export const api = {
   listTemplates: () => request<TemplateCatalog>("/templates"),
   // Spending limits for paid tools. Owner only; changing the limits works in the desktop app (404 elsewhere).
   getSpend: () => request<SpendOverview>("/spend-limits"),
-  saveSpendLimits: (limits: SpendLimits) => request<SpendLimits>("/spend-limits", { method: "PUT", body: JSON.stringify(limits) }),
+  saveSpendLimits: (limits: SpendLimitsChange) => request<SpendLimits>("/spend-limits", { method: "PUT", body: JSON.stringify(limits) }),
   setWorkerPaidUse: (agentId: number, scheduledPaidUse: boolean) =>
     request<WorkerSpend>(`/spend-limits/workers/${agentId}`, { method: "PUT", body: JSON.stringify({ scheduled_paid_use: scheduledPaidUse }) }),
   hireTemplates: (templateIds: string[], provider?: string, model?: string | null) =>

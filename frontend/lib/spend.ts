@@ -1,6 +1,15 @@
 // Spending limits for paid marketplace tools: types and the small pure helpers the screens share.
 
-export type SpendLimits = { per_call_cents: number; per_run_cents: number; per_worker_month_cents: number };
+export type SpendLimitSource = "database" | "environment" | "default";
+export type SpendLimits = {
+  per_call_cents: number;
+  per_run_cents: number;
+  per_worker_month_cents: number;
+  // Where each value comes from, keyed per_call, per_run and monthly. Older servers do not send it.
+  sources?: Partial<Record<"per_call" | "per_run" | "monthly", string>>;
+};
+// What to send when saving: only the three amounts.
+export type SpendLimitsChange = Pick<SpendLimits, "per_call_cents" | "per_run_cents" | "per_worker_month_cents">;
 export type WorkerSpend = { agent_id: number; name: string; scheduled_paid_use: boolean; month_cents: number };
 export type SpendOverview = { limits: SpendLimits; workers: WorkerSpend[] };
 
@@ -19,6 +28,21 @@ export function dollarsToCents(text: string): number | null {
   if (!match) return null;
   const cents = Number(match[1]) * 100 + Number((match[2] ?? "").padEnd(2, "0") || 0);
   return Number.isSafeInteger(cents) ? cents : null;
+}
+
+// Where a limit's value comes from, as a short phrase; null when the server did not say.
+export function limitSourceLabel(source: string | null | undefined): string | null {
+  if (source === "database") return "set in settings";
+  if (source === "environment") return "from the server's environment";
+  if (source === "default") return "default";
+  return null;
+}
+
+// What to tell the person when saving the limits failed with this status.
+export function saveFailureMessage(status: number | null | undefined, serverText: string | null | undefined): string {
+  if (status === 404) return "This server does not allow changing the spending limits.";
+  if (status === 409) return serverText?.trim() || "The limits cannot be changed right now. Reload and try again.";
+  return serverText?.trim() || "Could not save the limits.";
 }
 
 export function limitsSentence(limits: SpendLimits): string {

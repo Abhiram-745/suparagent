@@ -85,7 +85,7 @@ export function ProfileProposals({
           <li key={item.id} className="space-y-1 text-xs">
             <p className="font-medium">{proposalTitle(item)}</p>
             {item.reason && <p className="text-muted">Why: {item.reason}</p>}
-            <p className="whitespace-pre-wrap text-muted">Now: {proposalBefore(item)}</p>
+            <p className="whitespace-pre-wrap text-muted">When suggested: {proposalBefore(item)}</p>
             <p className="whitespace-pre-wrap">New: {item.text}</p>
             {stale?.id === item.id && (
               <p role="alert" className="text-warning">

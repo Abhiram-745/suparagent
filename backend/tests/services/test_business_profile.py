@@ -36,6 +36,23 @@ def test_empty_until_written_then_round_trips_and_trims():
     assert business_profile.read()["fields"]["tone"] == "warm"
 
 
+def test_a_save_with_only_some_fields_keeps_the_others_and_empty_text_clears_one():
+    business_profile.write({"sells": "candles", "tone": "warm", "hours": "9 to 5"})
+    saved = business_profile.write({"hours": "10 to 4"})
+    assert saved["fields"]["sells"] == "candles" and saved["fields"]["tone"] == "warm"
+    assert saved["fields"]["hours"] == "10 to 4"
+    cleared = business_profile.write({"tone": ""})
+    assert cleared["fields"]["tone"] == "" and cleared["fields"]["sells"] == "candles"
+
+
+async def test_over_http_a_partial_save_keeps_the_other_fields(api):
+    await api.put("/api/v1/business-profile", json={"fields": {"sells": "candles", "tone": "warm"}})
+    saved = await api.put("/api/v1/business-profile", json={"fields": {"hours": "10 to 4"}})
+    assert saved.status_code == 200
+    fields = saved.json()["fields"]
+    assert fields["sells"] == "candles" and fields["tone"] == "warm" and fields["hours"] == "10 to 4"
+
+
 def test_each_field_has_a_size_limit_and_nothing_is_stored_on_refusal():
     business_profile.write({"sells": "candles"})
     with pytest.raises(business_profile.ProfileTooLarge):

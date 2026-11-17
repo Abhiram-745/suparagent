@@ -91,13 +91,15 @@ def read() -> dict:
 
 
 def write(fields: dict[str, str], *, expected_hash: str | None = None) -> dict:
-    """Replace the whole profile with `fields` (a missing field becomes empty).
+    """Save the fields given. A field that is left out keeps its current text; an empty string clears it.
     Raises UnknownField, ProfileTooLarge, ProfileLooksSecret and ProfileConflict."""
     unknown = sorted(set(fields) - set(FIELDS))
     if unknown:
         raise UnknownField(unknown[0])
     clean: dict[str, str] = {}
     for name, (_, limit) in FIELDS.items():
+        if name not in fields:
+            continue
         value = (fields.get(name) or "").replace("\r\n", "\n").strip()
         if len(value) > limit:
             raise ProfileTooLarge(f"{FIELDS[name][0]} must be at most {limit:,} characters.")
@@ -108,9 +110,10 @@ def write(fields: dict[str, str], *, expected_hash: str | None = None) -> dict:
         current = _fields(_read())
         if expected_hash is not None and _hash(current) != expected_hash:
             raise ProfileConflict({"fields": current, "hash": _hash(current)})
+        merged = {**current, **clean}
         path = _path()
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        agent_memory.write_atomic(path, json.dumps({"fields": clean, "updated_at": time.time()}))
+        agent_memory.write_atomic(path, json.dumps({"fields": merged, "updated_at": time.time()}))
     return read()
 
 
