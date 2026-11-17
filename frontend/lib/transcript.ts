@@ -207,9 +207,8 @@ function closeTurn(items: TranscriptItem[], forTurn: number | null): TranscriptI
   if (!items.some(open)) return items;
   return items.map((i) => {
     if (!open(i)) return i;
-    return i.kind === "approval"
-      ? { ...i, status: "cancelled" as const }
-      : { ...i, state: "stopped" as const };
+    if (i.kind === "approval") return { ...i, status: "cancelled" as const };
+    return i.kind === "tool" ? { ...i, state: "stopped" as const } : i;
   });
 }
 
@@ -446,8 +445,9 @@ export function applyEvent(state: Transcript, event: ThreadEvent): Transcript {
     case "team.setup.dismissed": {
       if (typeof data.request_id !== "string" || typeof data.version !== "number") return base;
       const previous = state.items.find((item): item is Extract<TranscriptItem, { kind: "team_setup" }> => item.kind === "team_setup" && item.requestId === data.request_id);
-      if (!previous || previous.state === "applied" || (previous.version ?? 0) > data.version) return base;
-      return { ...base, items: state.items.map(item => item === previous ? { ...previous, state: "rejected", version: data.version } : item) };
+      const version: number = data.version;
+      if (!previous || previous.state === "applied" || (previous.version ?? 0) > version) return base;
+      return { ...base, items: state.items.map(item => item === previous ? { ...previous, state: "rejected" as const, version } : item) };
     }
 
     case "team.setup.applied": {
