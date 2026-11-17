@@ -104,6 +104,13 @@ const ROUTINE_READ_TOOLS = [
   { app: "googlecalendar", label: "Google Calendar", tools: [
     ["googlecalendar_list_calendars", "List calendars"], ["googlecalendar_list_events", "List events"],
   ], writes: [] },
+  { app: "googleads", label: "Google Ads", tools: [
+    ["googleads_search", "Run a read-only report query"],
+  ], writes: [] },
+  { app: "metaads", label: "Meta Ads", tools: [
+    ["metaads_get_ad_accounts", "List ad accounts"], ["metaads_list_campaigns", "List campaigns"],
+    ["metaads_get_insights", "Read performance insights"],
+  ], writes: [] },
 ] as const;
 
 const ROUTINE_APP_TOOL_NAMES = new Set<string>(ROUTINE_READ_TOOLS.flatMap((group) =>
