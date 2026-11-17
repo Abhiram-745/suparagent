@@ -29,6 +29,8 @@ In a workspace shared with teammates, a member needs the **Manage agents** permi
 
 The lead should ask only material unanswered questions about purpose, output, constraints and required capabilities. It discovers IDs before writing and reports applied/pending/failed states truthfully. A correction changes the same agent instead of creating a duplicate. The absence of a connector, computer or routine must be stated separately from successful profile creation. Never request credentials in chat.
 
+For team setup, the lead now writes a short plain-language plan with each specialist's job and requested engine/model, then waits for the person's confirmation before using a team-write tool. Revisions update the draft and require confirmation again. The validated setup receipt and its existing approval/Undo rules still apply. After setup, the lead should offer a first-task handoff without starting unconfirmed work or a routine. This conversation is guided by the selected model; the app does not run a scripted interview.
+
 ## Persistence and recovery
 
 Creation/update and management receipts bind request ID, caller, source conversation and the canonical request digest. Identical retries replay the saved result; changing the request or source while reusing the ID conflicts. Plans reject permission fields, lock the current team and targets, revalidate current turn ownership/origin at commit, and roll back database changes together on failure. Secrets are redacted in saved setup plans and field details.

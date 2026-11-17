@@ -4,7 +4,7 @@
 
 ### Changed
 
-- Surface **Create by chatting** with the team lead (Chief of Staff) in the README and clarify that new specialists start with Ask-first permissions.
+- Surface **Create by chatting** with the team lead (Chief of Staff) in the README; the lead now presents a plain-language team plan for confirmation, then offers a first-task handoff. New specialists start with Ask-first permissions.
 - Expand the Muapi Community MCP listing to selected data research APIs. Search and estimate are read-only; paid lookups require a per-call USD cap and approval and can consume Muapi credits.
 
 ## 0.8.7 - 2026-11-17

@@ -69,12 +69,13 @@ end.
 <p align="center"><img src="docs/suparagent-workflow.svg" alt="A request goes to a Claude or Codex team lead, who delegates work to specialists. Teammates can share a project folder, and you review actions when approval is required." width="100%"></p>
 
 - **Create agents and teams.** Start with **Create by chatting** to ask your
-  team lead (Chief of Staff) to set up specialists around a goal. New
-  specialists start with Ask-first permissions; app access and credentials
-  stay under your control. You can also create agents with a name, role,
-  engine, workspace, memory, and approval settings. A lead can delegate work
-  to specialists or coordinate agents in shared rooms. Team leads can use
-  Claude or Codex. See [managing agents through chat](docs/CHAT_MANAGEMENT.md)
+  team lead (Chief of Staff) to propose specialists around a goal. Review and
+  confirm the plan before setup. New specialists start with Ask-first
+  permissions; app access and credentials stay under your control. Create
+  agents manually with a name, role, engine, workspace, memory, and approval
+  settings. A lead can delegate work to specialists or coordinate agents in
+  shared rooms. Team leads can use Claude or Codex. See
+  [managing agents through chat](docs/CHAT_MANAGEMENT.md)
   and [teams and delegated work](docs/TEAMS.md).
 - **Keep useful context.** Agents can save notes, recall relevant notes and
   conversations, and search their history. You can review and edit what they
