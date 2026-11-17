@@ -1,5 +1,6 @@
 "use client";
 
+import { outcomeLabel, pauseReasonLabel, spendLine } from "@/lib/spend";
 import { Select } from "@/components/ui/Select";
 
 import { Dialog } from "@/components/ui/Dialog";
@@ -282,6 +283,8 @@ function RunHistory({ routine, onClose, onOpen }: { routine: Routine; onClose: (
                 </button>
               </div>
               {run.outcome === "no_change" && <p className="mt-1 text-xs text-muted">No changes · checks retained in history</p>}
+              {run.outcome === "partial" && <p className="mt-1 text-xs text-warning">{outcomeLabel("partial")}</p>}
+              {spendLine(run.outcome_details) && <p className="mt-1 text-xs text-muted">{spendLine(run.outcome_details)}</p>}
               {(run.error || run.result) && (
                 <p className={`mt-1 line-clamp-3 whitespace-pre-wrap text-xs ${run.error ? "text-danger" : "text-muted"}`}>{run.error || run.result}</p>
               )}
@@ -582,7 +585,7 @@ export function RoutinesPanel({ agents, onClose, routineId = null }: { agents: A
                           {routine.webhook_enabled && <span className="rounded bg-hover px-1.5 text-xs">webhook</span>}
                         </div>
                         <p className="text-xs text-muted">{routine.schedule_kind === "manual" ? routine.summary : `${routine.summary} · ${nextRunText(routine)}`}</p>
-                        {routine.paused_reason && <p className="text-xs text-warning">{routine.paused_reason}</p>}
+                        {routine.paused_reason && <p className="text-xs text-warning">{pauseReasonLabel(routine.paused_reason)}</p>}
                         {routine.latest_run && (
                           <p className="mt-1 flex flex-wrap items-center gap-2 text-xs">
                             <span className="text-muted">Latest:</span>

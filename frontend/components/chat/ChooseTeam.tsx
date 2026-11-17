@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { BusinessProfileForm } from "./BusinessProfileForm";
+import { WorkerGrants } from "./WorkerGrants";
 import { EmptyPanel, ErrorState, LoadingState } from "./PanelState";
 import {
   categoryLabel,
@@ -143,6 +144,10 @@ export function ChooseTeam({
           {busy ? "Undoing…" : "Undo"}
         </button>
         <p className="text-xs text-muted">Undo works while a worker is unchanged and has not been used.</p>
+        <WorkerGrants
+          workers={receipt.workers}
+          suggestedTools={Object.fromEntries(catalog.templates.map((t) => [t.id, t.suggested_tools]))}
+        />
         {!profileDone && (
           <section aria-label="Business profile" className="space-y-2 border-t border-line pt-3">
             <h4 className="text-xs font-medium uppercase tracking-wide text-muted">Tell your workers about your business</h4>

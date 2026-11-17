@@ -1,4 +1,5 @@
 import type { SkillDoc, SkillPreview, SkillSave, SkillSummary, SkillLearnPreview, SkillLearnSource } from "./skills";
+import type { SpendLimits, SpendOverview, WorkerSpend } from "./spend";
 import type { HireReceipt, SuggestGoal, Suggestion, TemplateCatalog, TemplateSkill } from "./templates";
 import type { ComposioAccount, ComposioApp, ComposioLink } from "./connected-apps";
 import type { MarketplaceCatalog, MarketplaceConnection, MarketplaceSection, MarketplaceTool } from "./marketplace";
@@ -912,7 +913,7 @@ export type RoutineRun = {
   scheduled_for: string | null;
   thread_id: number | null;
   turn_id: number | null;
-  outcome?: "no_change" | "report" | "unknown" | "source_failed" | "failed" | "interrupted" | null;
+  outcome?: "no_change" | "report" | "unknown" | "source_failed" | "failed" | "interrupted" | "partial" | null;
   outcome_details?: Record<string, unknown> | null;
   result: string | null;
   error: string | null;
@@ -1375,6 +1376,11 @@ export const api = {
 
   // Ready-made agents (/templates): a bundled, read-only catalog.
   listTemplates: () => request<TemplateCatalog>("/templates"),
+  // Spending limits for paid tools. Owner only; changing the limits works in the desktop app (404 elsewhere).
+  getSpend: () => request<SpendOverview>("/spend-limits"),
+  saveSpendLimits: (limits: SpendLimits) => request<SpendLimits>("/spend-limits", { method: "PUT", body: JSON.stringify(limits) }),
+  setWorkerPaidUse: (agentId: number, scheduledPaidUse: boolean) =>
+    request<WorkerSpend>(`/spend-limits/workers/${agentId}`, { method: "PUT", body: JSON.stringify({ scheduled_paid_use: scheduledPaidUse }) }),
   hireTemplates: (templateIds: string[], provider?: string, model?: string | null) =>
     request<HireReceipt>("/templates/hire", { method: "POST", body: JSON.stringify({ template_ids: templateIds, ...(provider ? { provider } : {}), ...(model ? { model } : {}) }) }),
   suggestGoals: () => request<SuggestGoal[]>("/templates/suggest/goals"),
