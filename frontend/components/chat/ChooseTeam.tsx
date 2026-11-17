@@ -43,6 +43,7 @@ export function ChooseTeam({
   onSkip,
   onHired,
   onUndone,
+  onTickedChange,
 }: {
   provider?: string;
   model?: string | null;
@@ -52,6 +53,8 @@ export function ChooseTeam({
   onSkip?: () => void;
   onHired?: (receipt: HireReceipt) => void;
   onUndone?: () => void;
+  /** How many workers are ticked but not yet added; lets a parent warn before leaving the screen. */
+  onTickedChange?: (count: number) => void;
 }) {
   const [catalog, setCatalog] = useState<TemplateCatalog | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -101,6 +104,8 @@ export function ChooseTeam({
     () => hireableChoices(chosen, catalog?.templates ?? []).filter((id) => !added.includes(id) || copies.includes(id)),
     [chosen, catalog, added, copies],
   );
+
+  useEffect(() => { onTickedChange?.(ticked.length); }, [ticked.length, onTickedChange]);
 
   // "Help me choose": three short questions, answered by the bundled catalog. It only ticks cards for
   // the person to review; nothing is created or granted until Add is pressed.

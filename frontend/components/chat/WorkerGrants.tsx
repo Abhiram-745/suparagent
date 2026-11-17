@@ -7,7 +7,8 @@ import { limitsSentence, type SpendLimits } from "@/lib/spend";
 import type { HiredWorker } from "@/lib/templates";
 
 // After a hire: for each worker that suggests paid MuAPI tools, an explicit "Grant these tools" step and the
-// per-worker switch for scheduled runs. Hiring never grants anything; nothing here happens unless the person clicks.
+// per-worker switch for scheduled runs. When MuAPI is connected the suggested tools are granted automatically (paid calls
+// still ask in chats and stay inside the spending limits); scheduled spending stays off until the person turns it on.
 
 type Row = { worker: HiredWorker; tools: string[] };
 
@@ -34,11 +35,24 @@ export function WorkerGrants({ workers, suggestedTools }: { workers: HiredWorker
       if (!live) return;
       setConfigured(integration.configured);
       setLimits(overview.limits);
-      setStatus(Object.fromEntries(rows.map((row) => {
+      const initial = Object.fromEntries(rows.map((row) => {
         const existing = grants.find(([id]) => id === row.worker.agent_id)?.[1] ?? [];
         const worker = overview.workers.find((item) => item.agent_id === row.worker.agent_id);
         return [row.worker.agent_id, { ...NEW_STATUS, granted: row.tools.every((name) => existing.includes(name)), paidUse: worker?.scheduled_paid_use ?? false }];
-      })));
+      }));
+      setStatus(initial);
+      if (!integration.configured) return;
+      // Default on: grant the suggested tools to each worker that does not have them yet.
+      await Promise.all(rows.filter((row) => !initial[row.worker.agent_id]?.granted).map(async (row) => {
+        const id = row.worker.agent_id;
+        try {
+          const existing = grants.find(([agent]) => agent === id)?.[1] ?? [];
+          await api.setMuapiAgentGrants(id, [...new Set([...existing, ...row.tools])]);
+          if (live) setStatus((now) => ({ ...now, [id]: { ...(now[id] ?? NEW_STATUS), granted: true } }));
+        } catch (e) {
+          if (live) setStatus((now) => ({ ...now, [id]: { ...(now[id] ?? NEW_STATUS), error: e instanceof Error ? e.message : "Could not grant the tools." } }));
+        }
+      }));
     }).catch(() => { if (live) setConfigured(false); });
     return () => { live = false; };
   }, [workerIds]);
@@ -76,11 +90,11 @@ export function WorkerGrants({ workers, suggestedTools }: { workers: HiredWorker
       <h4 className="text-xs font-medium uppercase tracking-wide text-muted">Let your workers use MuAPI</h4>
       <p className="text-xs text-muted">
         Workers can search, inspect and estimate for free. Paid calls cost MuAPI credits and are refused above{" "}
-        {limits ? limitsSentence(limits) : "your spending limits"}. Nothing is granted until you click.
+        {limits ? limitsSentence(limits) : "your spending limits"}. The tools are granted for you once MuAPI is connected; scheduled spending stays off until you turn it on.
       </p>
       {configured === false && (
         <p className="text-xs text-muted">
-          Connect MuAPI directly first. <Link href="/settings/integrations/" className="underline">Open Integration settings</Link>, then return to grant tools.
+          Connect MuAPI first. <Link href="/settings/integrations/" className="underline">Open Integration settings</Link>, then grant tools from Agent access there.
         </p>
       )}
       <ul className="space-y-2">

@@ -46,6 +46,8 @@ export function OnboardingApp() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [loadTick, setLoadTick] = useState(0);
   const [hiredCount, setHiredCount] = useState(0);
+  // Workers ticked on the agent screen but not yet added. Continue waits, so a tick is never lost silently.
+  const [unaddedTicks, setUnaddedTicks] = useState(0);
   // Workers made from the ready-made list, counted from the agents that exist so the number survives a reload.
   const [existingCount, setExistingCount] = useState<number | null>(null);
   const [lastSaved, setLastSaved] = useState("");
@@ -175,8 +177,9 @@ export function OnboardingApp() {
   // Stored step 3 (the old separate Team step) is shown on the agent screen, so saved progress still opens somewhere sensible.
   const screen = draft.step === 3 ? 2 : draft.step;
   const showTeam = draft.create_agent && draft.make_lead && !!engine?.capabilities.mcp;
+  const pendingTicks = screen === 2 && showTeam ? unaddedTicks : 0;
   const locked = saving || working;
-  const canContinue = !locked && !saveError
+  const canContinue = !locked && !saveError && pendingTicks === 0
     && !(screen === 1 && !engine?.available)
     && !(screen === 2 && draft.create_agent && (!draft.name.trim() || !draft.purpose.trim()));
   const hostNote = state.execution_host === "desktop"
@@ -239,6 +242,7 @@ export function OnboardingApp() {
                       model={draft.model || undefined}
                       onHired={(receipt) => setHiredCount(receipt.workers.length)}
                       onUndone={() => setHiredCount(0)}
+                      onTickedChange={setUnaddedTicks}
                     />
                   </div>
                 )}
@@ -278,6 +282,7 @@ export function OnboardingApp() {
             </>
           }>{saveError}</Banner>
         )}
+        {pendingTicks > 0 && <p role="status" className="text-xs text-danger">You ticked {pendingTicks} {pendingTicks === 1 ? "worker" : "workers"} but have not added {pendingTicks === 1 ? "it" : "them"}. Press the Add button above, or untick to continue.</p>}
         <div className="flex flex-wrap gap-2">
           {screen > 0 && <Button disabled={locked} onClick={() => change({ step: screen === 4 ? 2 : screen - 1 })}>{t("onboarding.back")}</Button>}
           {screen < 4

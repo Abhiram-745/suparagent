@@ -80,6 +80,24 @@ export function IntegrationsSettings() {
     });
   };
 
+  const allTools = TOOLS.map(([tool]) => tool as string);
+  const setAllTools = (agentIds: number[], checked: boolean) => {
+    setDraft((current) => ({ ...current, ...Object.fromEntries(agentIds.map((id) => [id, checked ? [...allTools] : []])) }));
+  };
+  const everyAgentFull = agents.length > 0 && agents.every((agent) => allTools.every((tool) => (draft[agent.id] ?? []).includes(tool)));
+  const dirtyAgents = agents.filter((agent) => JSON.stringify(sorted(draft[agent.id] ?? [])) !== JSON.stringify(sorted(saved[agent.id] ?? [])));
+
+  const saveAll = async () => {
+    setBusy(true); setError(null); setMessage(null);
+    try {
+      const results = await Promise.all(dirtyAgents.map(async (agent) => [agent.id, (await api.setMuapiAgentGrants(agent.id, draft[agent.id] ?? [])).tool_names] as const));
+      setSaved((current) => ({ ...current, ...Object.fromEntries(results) }));
+      setMessage(`MuAPI access was saved for ${results.length} ${results.length === 1 ? "agent" : "agents"}.`);
+    } catch (cause) {
+      setError(cause instanceof ApiError || cause instanceof Error ? cause.message : "Could not save MuAPI access.");
+    } finally { setBusy(false); }
+  };
+
   const saveAgent = async (agent: Agent) => {
     setBusy(true); setError(null); setMessage(null);
     try {
@@ -133,13 +151,28 @@ export function IntegrationsSettings() {
 
       <SettingsCard title="Agent access" description="Each grant is exact and starts off. Paid calls still need approval in chats and stay within your spending limits.">
         {!agents.length ? <p className="text-sm text-muted">Create an agent to configure MuAPI access.</p> : (
+          <>
+          <div className="mb-3 flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-xs font-medium">
+              <input type="checkbox" disabled={busy || !configured} checked={everyAgentFull}
+                onChange={(event) => setAllTools(agents.map((agent) => agent.id), event.target.checked)} />Select all tools for every agent
+            </label>
+            <button type="button" disabled={busy || !configured || dirtyAgents.length === 0} onClick={() => void saveAll()}
+              className="rounded-md border border-line px-3 py-1.5 text-xs font-medium hover:bg-hover disabled:opacity-50">Save all changes</button>
+          </div>
           <ul className="space-y-3">
             {agents.map((agent) => {
               const selected = draft[agent.id] ?? [];
               const isDirty = JSON.stringify(sorted(selected)) !== JSON.stringify(sorted(saved[agent.id] ?? []));
               const hasPaid = (saved[agent.id] ?? []).includes("muapi_data_api_call");
               return <li key={agent.id} className="space-y-2 rounded-md border border-line p-3">
-                <h3 className="text-sm font-medium">{agent.name}</h3>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-sm font-medium">{agent.name}</h3>
+                  <label className="flex items-center gap-2 text-xs text-muted">
+                    <input type="checkbox" disabled={busy || !configured} checked={allTools.every((tool) => selected.includes(tool))}
+                      onChange={(event) => setAllTools([agent.id], event.target.checked)} />Select all
+                  </label>
+                </div>
                 <div className="grid gap-2 sm:grid-cols-2">
                   {TOOLS.map(([tool, label]) => <label key={tool} className="flex items-center gap-2 text-xs">
                     <input type="checkbox" disabled={busy || !configured} checked={selected.includes(tool)}
@@ -156,6 +189,7 @@ export function IntegrationsSettings() {
               </li>;
             })}
           </ul>
+          </>
         )}
       </SettingsCard>
     </div>
