@@ -36,6 +36,7 @@ CUSTOM_MCP_TABLES = {"custom_mcp_connection", "custom_mcp_tool_grant", "custom_m
 AGENT_SERVICE_TABLES = {
     "agent_service_provider", "agent_service_resource", "agent_service_assignment", "agent_service_audit",
 }
+SPEND_TABLES = {"spend_ledger"}
 WORKFLOW_TABLES = {"workflow", "workflow_run"}
 PEOPLE_TABLES = {"person", "person_invite", "people_audit"}
 
@@ -92,6 +93,7 @@ def test_every_table_is_covered_by_one_of_the_snapshots():
         | COMMUNITY_MCP_TABLES
         | CUSTOM_MCP_TABLES
         | AGENT_SERVICE_TABLES
+        | SPEND_TABLES
         | WORKFLOW_TABLES
         | PEOPLE_TABLES
     )
@@ -117,6 +119,10 @@ def test_custom_mcp_tables_compile_to_their_reviewed_postgres_schema():
 
 def test_agent_service_tables_compile_to_their_reviewed_postgres_schema():
     assert postgres_ddl(AGENT_SERVICE_TABLES) == snapshot_text(HERE / "postgres_schema_agent_service.sql")
+
+
+def test_spend_ledger_table_compiles_to_its_reviewed_postgres_schema():
+    assert postgres_ddl(SPEND_TABLES) == snapshot_text(HERE / "postgres_schema_spend.sql")
 
 
 def test_computer_table_compiles_to_its_reviewed_postgres_schema():
