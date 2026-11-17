@@ -745,6 +745,20 @@ export type BusinessProfile = {
   updated_at: number;
   empty: boolean;
 };
+// A change a worker suggested to one profile field. It waits for the person; nothing is applied until they accept.
+export type ProfileProposal = {
+  id: string;
+  field: string;
+  label: string;
+  text: string;
+  reason: string;
+  agent_id: number | null;
+  agent_name: string;
+  // What the field said when the suggestion was made.
+  base_text: string;
+  created_at: number;
+};
+export type ProfileProposals = { items: ProfileProposal[]; max_pending: number };
 export type AboutMe = { text: string; hash: string; learned: LearnedFact[]; max_chars: number; redacted?: number };
 export type MemoryProposal = {
   id: string;
@@ -1458,6 +1472,18 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(expectedHash ? { fields, expected_hash: expectedHash } : { fields }),
     }),
+
+  profileProposals: () => request<ProfileProposals>("/business-profile/proposals"),
+
+  // A stale one (the field changed since it was suggested) is a 409 with code proposal_stale; pass overwrite to apply it anyway.
+  acceptProfileProposal: (id: string, overwrite = false) =>
+    request<BusinessProfile>(`/business-profile/proposals/${encodeURIComponent(id)}/accept`, {
+      method: "POST",
+      body: JSON.stringify({ overwrite }),
+    }),
+
+  dismissProfileProposal: (id: string) =>
+    request<{ ok: boolean }>(`/business-profile/proposals/${encodeURIComponent(id)}/dismiss`, { method: "POST" }),
 
   aboutMe: () => request<AboutMe>("/memory/about-me"),
 

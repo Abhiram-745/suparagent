@@ -55,7 +55,7 @@ MUAPI_TOOLS: tuple[str, ...] = (
 # Written once, composed into every worker template's instructions when the
 # template is read (`Template.full_instructions`), and never copied into a skill.
 RUN_RULES = """\
-1. **Profile first.** Read the workspace business profile first. It is read-only: propose a change as a draft for the owner, never edit it.
+1. **Profile first.** Read the workspace business profile first. It is read-only: to change it, call `suggest_profile_change` and the owner accepts or dismisses; never edit it. Without that tool, leave the suggestion in your notes.
 2. **Missing input.** Each routine names the one thing it needs from the profile. If that is missing, ask exactly one short question and make no paid call. In a chat, carry on once answered. In a scheduled run, leave the question in your notes where the owner will see it and end `skipped` with it as the blocker. Use the answer for the deliverable and propose it as a profile edit.
 3. **Drafts only.** Never publish, send, post, submit, buy or sign in. Leave results in your notes. Use only MuAPI search, estimate, capped call and result check.
 4. **Order of calls.** Find the endpoint with `muapi_data_api_search`; never guess a name. Get a fresh quote with `muapi_data_api_estimate`. Only then call `muapi_data_api_call` with `max_cost_usd`. Check async work with `muapi_predict_result`. Searches and estimates cost nothing.
