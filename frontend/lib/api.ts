@@ -1,6 +1,6 @@
 import type { SkillDoc, SkillPreview, SkillSave, SkillSummary, SkillLearnPreview, SkillLearnSource } from "./skills";
-import type { SpendLimits, SpendOverview, WorkerSpend } from "./spend";
-import type { HireReceipt, SuggestGoal, Suggestion, TemplateCatalog, TemplateSkill } from "./templates";
+import type { SpendLimits, SpendLimitsChange, SpendOverview, WorkerSpend } from "./spend";
+import type { HireReceipt, LatestSuggestion, SuggestGoal, Suggestion, TemplateCatalog, TemplateSkill } from "./templates";
 import type { ComposioAccount, ComposioApp, ComposioLink } from "./connected-apps";
 import type { MarketplaceCatalog, MarketplaceConnection, MarketplaceSection, MarketplaceTool } from "./marketplace";
 import type { CustomMcpConnection, CustomMcpDraft, CustomMcpTool } from "./custom-mcp";
@@ -746,6 +746,20 @@ export type BusinessProfile = {
   updated_at: number;
   empty: boolean;
 };
+// A change a worker suggested to one profile field. It waits for the person; nothing is applied until they accept.
+export type ProfileProposal = {
+  id: string;
+  field: string;
+  label: string;
+  text: string;
+  reason: string;
+  agent_id: number | null;
+  agent_name: string;
+  // What the field said when the suggestion was made.
+  base_text: string;
+  created_at: number;
+};
+export type ProfileProposals = { items: ProfileProposal[]; max_pending: number };
 export type AboutMe = { text: string; hash: string; learned: LearnedFact[]; max_chars: number; redacted?: number };
 export type MemoryProposal = {
   id: string;
@@ -1402,12 +1416,13 @@ export const api = {
   listTemplates: () => request<TemplateCatalog>("/templates"),
   // Spending limits for paid tools. Owner only; changing the limits works in the desktop app (404 elsewhere).
   getSpend: () => request<SpendOverview>("/spend-limits"),
-  saveSpendLimits: (limits: SpendLimits) => request<SpendLimits>("/spend-limits", { method: "PUT", body: JSON.stringify(limits) }),
+  saveSpendLimits: (limits: SpendLimitsChange) => request<SpendLimits>("/spend-limits", { method: "PUT", body: JSON.stringify(limits) }),
   setWorkerPaidUse: (agentId: number, scheduledPaidUse: boolean) =>
     request<WorkerSpend>(`/spend-limits/workers/${agentId}`, { method: "PUT", body: JSON.stringify({ scheduled_paid_use: scheduledPaidUse }) }),
   hireTemplates: (templateIds: string[], provider?: string, model?: string | null) =>
     request<HireReceipt>("/templates/hire", { method: "POST", body: JSON.stringify({ template_ids: templateIds, ...(provider ? { provider } : {}), ...(model ? { model } : {}) }) }),
   suggestGoals: () => request<SuggestGoal[]>("/templates/suggest/goals"),
+  latestWorkerSuggestion: () => request<LatestSuggestion | null>("/templates/suggest/latest"),
   suggestTemplates: (goals: string[], about: string, maxSetup: "express" | "guided") =>
     request<{ suggestions: Suggestion[] }>("/templates/suggest", {
       method: "POST",
@@ -1482,6 +1497,18 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(expectedHash ? { fields, expected_hash: expectedHash } : { fields }),
     }),
+
+  profileProposals: () => request<ProfileProposals>("/business-profile/proposals"),
+
+  // A stale one (the field changed since it was suggested) is a 409 with code proposal_stale; pass overwrite to apply it anyway.
+  acceptProfileProposal: (id: string, overwrite = false) =>
+    request<BusinessProfile>(`/business-profile/proposals/${encodeURIComponent(id)}/accept`, {
+      method: "POST",
+      body: JSON.stringify({ overwrite }),
+    }),
+
+  dismissProfileProposal: (id: string) =>
+    request<{ ok: boolean }>(`/business-profile/proposals/${encodeURIComponent(id)}/dismiss`, { method: "POST" }),
 
   aboutMe: () => request<AboutMe>("/memory/about-me"),
 

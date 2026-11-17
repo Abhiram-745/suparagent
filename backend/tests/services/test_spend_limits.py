@@ -1,4 +1,5 @@
 """Spending limits for paid marketplace tools: the three limits, settling, scheduled paid use and who may change them."""
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace as NS
 from uuid import uuid4
@@ -238,7 +239,7 @@ def local_enabled(monkeypatch):
 
 async def test_the_owner_reads_limits_and_turns_scheduled_paid_use_on_and_off(api, world):
     body = (await api.get("/api/v1/spend-limits")).json()
-    assert body["limits"] == {"per_call_cents": 50, "per_run_cents": 200, "per_worker_month_cents": 2000}
+    assert {k: v for k, v in body["limits"].items() if k != "sources"} == {"per_call_cents": 50, "per_run_cents": 200, "per_worker_month_cents": 2000}
     mine = next(w for w in body["workers"] if w["agent_id"] == world.agent.id)
     assert mine["scheduled_paid_use"] is False
     on = await api.put(f"/api/v1/spend-limits/workers/{world.agent.id}", json={"scheduled_paid_use": True})
@@ -249,9 +250,41 @@ async def test_the_owner_reads_limits_and_turns_scheduled_paid_use_on_and_off(ap
     assert (await api.put(f"/api/v1/spend-limits/workers/{world.agent.id}", json={"scheduled_paid_use": "yes"})).status_code == 422
 
 
-async def test_changing_limits_is_a_desktop_owner_action(api):
+@pytest.fixture
+async def clean_limit_rows(world):
+    from app.db.models.app_setting import AppSetting, SettingAudit
+    yield
+    async with world.sessions() as db:
+        keys = list(spend.LIMIT_KEYS.values())
+        await db.execute(delete(AppSetting).where(AppSetting.key.in_(keys)))
+        await db.execute(delete(SettingAudit).where(SettingAudit.key.in_(keys)))
+        await db.commit()
+
+
+async def test_a_headless_owner_can_change_the_limits_and_sees_where_each_comes_from(api, clean_limit_rows):
+    before = (await api.get("/api/v1/spend-limits")).json()["limits"]
+    assert set(before["sources"]) == {"per_call", "per_run", "monthly"} and set(before["sources"].values()) <= {"environment", "default"}
     response = await api.put("/api/v1/spend-limits", json={"per_call_cents": 10, "per_run_cents": 20, "per_worker_month_cents": 30})
-    assert response.status_code == 404  # headless installs use environment configuration
+    assert response.status_code == 200
+    assert (response.json()["per_call_cents"], response.json()["per_run_cents"], response.json()["per_worker_month_cents"]) == (10, 20, 30)
+    after = (await api.get("/api/v1/spend-limits")).json()["limits"]
+    assert after["sources"] == {"per_call": "database", "per_run": "database", "monthly": "database"}
+    assert (await api.put("/api/v1/spend-limits", json={"per_call_cents": -1, "per_run_cents": 20, "per_worker_month_cents": 30})).status_code == 422
+
+
+async def test_a_saved_headless_limit_is_what_a_paid_call_is_held_to(world, clean_limit_rows):
+    async with world.sessions() as db:
+        await spend.save_headless_limits(db, {"per_call": 10, "per_run": 200, "monthly": 2000})
+    result = await paid_call(world, Remote(), max_cost_usd=0.5, q="a")
+    assert result["code"] == "spend_limit" and result["reason"] == "per_call"
+
+
+async def test_a_headless_limit_outside_its_range_is_refused(world, clean_limit_rows):
+    async with world.sessions() as db:
+        with pytest.raises(ValueError):
+            await spend.save_headless_limits(db, {"per_call": 100_001, "per_run": 200, "monthly": 2000})
+        with pytest.raises(ValueError):
+            await spend.save_headless_limits(db, {"per_call": True, "per_run": 200, "monthly": 2000})
 
 
 def test_no_agent_facing_surface_can_reach_the_limits_or_the_switch():
@@ -265,3 +298,95 @@ def test_no_agent_facing_surface_can_reach_the_limits_or_the_switch():
         for path in (root / folder).rglob("*.py"):
             text = path.read_text()
             assert not any(word in text for word in forbidden), (path.name, "must not touch spending limits")
+
+
+async def reserve_once(w, run_key, cap_cents):
+    async with w.sessions() as db:
+        row, reason = await spend.reserve(db, owner_id=w.owner, agent_id=w.agent.id, run_key=run_key,
+                                          routine_run_id=None, tool="t", cap_cents=cap_cents)
+        await asyncio.sleep(0.05)  # hold the transaction open so the other call has to wait for it
+        await db.commit()
+        return reason
+
+
+async def test_two_calls_at_once_cannot_both_pass_the_run_limit(world, monkeypatch):
+    monkeypatch.setattr(settings, "SPEND_PER_CALL_CENTS", 150)
+    monkeypatch.setattr(settings, "SPEND_PER_RUN_CENTS", 200)
+    reasons = await asyncio.gather(reserve_once(world, "turn:race", 150), reserve_once(world, "turn:race", 150))
+    assert sorted(r or "ok" for r in reasons) == ["ok", "per_run"]
+    async with world.sessions() as db:
+        assert await spend.run_spent(db, "turn:race") == 150
+
+
+async def test_two_calls_at_once_cannot_both_pass_the_monthly_limit(world, monkeypatch):
+    monkeypatch.setattr(settings, "SPEND_PER_CALL_CENTS", 200)
+    monkeypatch.setattr(settings, "SPEND_PER_RUN_CENTS", 1000)
+    monkeypatch.setattr(settings, "SPEND_PER_WORKER_MONTH_CENTS", 300)
+    reasons = await asyncio.gather(reserve_once(world, "turn:m1", 200), reserve_once(world, "turn:m2", 200))
+    assert sorted(r or "ok" for r in reasons) == ["monthly", "ok"]
+    async with world.sessions() as db:
+        assert await spend.month_spent(db, world.owner, world.agent.id) == 200
+
+
+class Failing:
+    def __init__(self, error):
+        self.error, self.calls = error, []
+
+    async def call_tool(self, name, arguments):
+        self.calls.append((name, arguments))
+        raise self.error
+
+
+async def test_a_call_that_clearly_never_ran_costs_nothing(world):
+    from app.community_mcp import McpError
+    for error in (McpError("authentication_failed", "x", 502, not_run=True),
+                  McpError("remote_error", "x", 502, not_run=True),
+                  McpError("connect_failed", "x", 502)):
+        result = await paid_call(world, Failing(error), max_cost_usd=0.5, q=error.code)
+        assert result["code"] == "outcome_unknown"
+    rows = await ledger(world)
+    assert [(r.status, r.settled_cents) for r in rows] == [("released", 0)] * 3
+    assert [r.reason for r in rows] == ["not_run:authentication_failed", "not_run:remote_error", "not_run:connect_failed"]
+    async with world.sessions() as db:
+        assert await spend.run_spent(db, f"routine:{world.occurrence.id}") == 0
+
+
+async def test_an_unconfirmed_call_keeps_its_cap_and_says_why(world):
+    from app.community_mcp import McpError
+    for error in (McpError("timeout", "x", 504), McpError("remote_unavailable", "x", 502),
+                  McpError("remote_error", "x", 502, not_run=False)):
+        await paid_call(world, Failing(error), max_cost_usd=0.2, q=error.code)
+    rows = await ledger(world)
+    assert [(r.status, r.settled_cents) for r in rows] == [("settled", 20)] * 3
+    assert [r.reason for r in rows] == ["unconfirmed:timeout", "unconfirmed:remote_unavailable", "unconfirmed:remote_error"]
+
+
+async def test_a_tool_error_with_no_cost_keeps_the_cap_and_a_priced_call_has_no_reason(world):
+    await paid_call(world, Remote({"content": [{"type": "text", "text": "bad"}], "isError": True}), max_cost_usd=0.3, q="a")
+    await paid_call(world, Remote({"content": [], "isError": False, "structuredContent": {"estimated_cost_usd": 0.1}}),
+                    max_cost_usd=0.3, q="b")
+    rows = await ledger(world)
+    assert [(r.settled_cents, r.reason) for r in rows] == [(30, "tool_error"), (10, None)]
+
+
+async def test_a_limit_check_counts_only_this_calendar_month_in_utc(world):
+    from datetime import UTC, datetime
+    async with world.sessions() as db:
+        for stamp, cents in ((datetime(2026, 10, 31, 23, 59, 59, tzinfo=UTC), 40), (datetime(2026, 11, 1, 0, 0, 0, tzinfo=UTC), 25)):
+            db.add(SpendLedger(owner_id=world.owner, agent_id=world.agent.id, run_key="turn:old", tool="t", status="settled",
+                               cap_cents=cents, settled_cents=cents, created_at=stamp))
+        await db.commit()
+        assert await spend.month_spent(db, world.owner, world.agent.id, datetime(2026, 11, 17, tzinfo=UTC)) == 25
+        assert await spend.month_spent(db, world.owner, world.agent.id, datetime(2026, 10, 31, 23, 59, 59, tzinfo=UTC)) == 40
+        assert await spend.month_spent(db, world.owner, world.agent.id, datetime(2026, 12, 1, tzinfo=UTC)) == 0
+    assert spend.month_start(datetime(2027, 1, 15, 8, tzinfo=UTC)) == datetime(2027, 1, 1, tzinfo=UTC)
+    assert spend.month_end(datetime(2026, 12, 31, 23, 59, tzinfo=UTC)) == datetime(2027, 1, 1, tzinfo=UTC)
+    assert spend.month_end(datetime(2026, 11, 17, tzinfo=UTC)) == datetime(2026, 12, 1, tzinfo=UTC)
+
+
+def test_cents_are_exact_at_the_edges():
+    assert spend.to_cents(0.1 + 0.2) == 30          # float noise does not cost an extra cent
+    assert spend.to_cents("0.001") == 1 and spend.to_cents("0.01") == 1 and spend.to_cents("0.010001") == 2
+    assert spend.to_cents(0) == 0 and spend.to_cents("0.0000004") == 0
+    assert spend.to_cents(1e-9) == 0 and spend.to_cents("1e2") == 10000
+    assert spend.to_cents(0.29) == 29 and spend.to_cents(19.99) == 1999

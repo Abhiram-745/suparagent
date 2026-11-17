@@ -193,6 +193,27 @@ export function hireSummary(receipt: HireReceipt): string {
 
 export type SuggestGoal = { key: string; label: string };
 export type Suggestion = { template_id: string; reason: string };
+// The team lead's latest suggestion from a chat, as the server remembers it. `created_at` is in seconds.
+export type LatestSuggestion = { suggestions: Suggestion[]; created_at: number };
+
+// What the person sends the team lead to start the short interview. It asks for questions first and a
+// suggestion second; the person still ticks and confirms on the Choose your team screen.
+export const LEAD_INTERVIEW_PROMPT =
+  "Help me choose ready-made workers. Ask me a few short questions about my business and what I want off my plate, " +
+  "then use your suggest_workers tool and tell me which ones fit. Do not create anything; I will pick them myself.";
+
+// A suggestion counts only if the lead made it after the person opened the chat, so an older answer from an
+// earlier conversation is not offered as if it were new.
+export function newSuggestionSince(latest: LatestSuggestion | null | undefined, baseline: number): LatestSuggestion | null {
+  if (!latest || !Array.isArray(latest.suggestions) || latest.suggestions.length === 0) return null;
+  return latest.created_at > baseline ? latest : null;
+}
+
+// The team lead's agent id from the team state, or null when no lead is set.
+export function leadAgentId(state: { team: { lead_agent_id: number | null } | null; agents: { id: number; is_lead: boolean }[] } | null | undefined): number | null {
+  if (!state) return null;
+  return state.team?.lead_agent_id ?? state.agents.find((agent) => agent.is_lead)?.id ?? null;
+}
 
 // The tick set "Help me choose" proposes: suggested workers the server would accept, in suggestion
 // order, within the hire limit. It only proposes; the person edits the ticks and confirms.

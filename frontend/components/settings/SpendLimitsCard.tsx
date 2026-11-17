@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import { centsToDollars, dollarsToCents, type SpendOverview } from "@/lib/spend";
+import { centsToDollars, dollarsToCents, limitSourceLabel, saveFailureMessage, type SpendOverview } from "@/lib/spend";
 import { SettingsCard } from "./SettingsCard";
 
-// The owner's spending limits for paid marketplace tools, and each worker's month so far. Changing the limits works in
-// the desktop app only; anywhere else the server answers 404 and this page says so.
+// The owner's spending limits for paid marketplace tools, and each worker's month so far. Each limit says where its
+// value comes from (settings, the server's environment or the default). If a server refuses a change, the page says so.
 export function SpendLimitsCard() {
   const [overview, setOverview] = useState<SpendOverview | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -40,22 +40,21 @@ export function SpendLimitsCard() {
     setBusy(true);
     setMessage(null);
     try {
-      const limits = await api.saveSpendLimits({ per_call_cents: a, per_run_cents: b, per_worker_month_cents: c });
-      if (overview) show({ ...overview, limits });
+      await api.saveSpendLimits({ per_call_cents: a, per_run_cents: b, per_worker_month_cents: c });
+      // Read it back so the source labels show the saved values as the server now reports them.
+      show(await api.getSpend());
       setMessage({ kind: "ok", text: "Limits saved. They apply to the next paid call." });
     } catch (e) {
-      const text = e instanceof ApiError && e.status === 404
-        ? "Spending limits are changed in the desktop app. Headless installs use environment configuration."
-        : e instanceof Error ? e.message : "Could not save the limits.";
-      setMessage({ kind: "error", text });
+      const status = e instanceof ApiError ? e.status : null;
+      setMessage({ kind: "error", text: saveFailureMessage(status, e instanceof Error ? e.message : null) });
     } finally {
       setBusy(false);
     }
   };
 
-  const field = (label: string, value: string, set: (v: string) => void) => (
+  const field = (label: string, value: string, set: (v: string) => void, source?: string) => (
     <label className="flex items-center justify-between gap-3 text-sm">
-      <span>{label}</span>
+      <span>{label}{limitSourceLabel(source) && <span className="ml-2 text-xs text-muted">({limitSourceLabel(source)})</span>}</span>
       <span className="flex items-center gap-1">$<input inputMode="decimal" value={value} onChange={(e) => set(e.target.value)} className="w-24 rounded-md border border-line bg-transparent px-2 py-1 text-right" /></span>
     </label>
   );
@@ -65,9 +64,9 @@ export function SpendLimitsCard() {
       {loadError && <p role="alert" className="text-xs text-danger">{loadError}</p>}
       {overview && (
         <div className="space-y-3">
-          {field("Most a single call may cost", perCall, setPerCall)}
-          {field("Most a single run may spend", perRun, setPerRun)}
-          {field("Most one worker may spend each month", perMonth, setPerMonth)}
+          {field("Most a single call may cost", perCall, setPerCall, overview.limits.sources?.per_call)}
+          {field("Most a single run may spend", perRun, setPerRun, overview.limits.sources?.per_run)}
+          {field("Most one worker may spend each month", perMonth, setPerMonth, overview.limits.sources?.monthly)}
           <div className="flex items-center gap-3">
             <button type="button" disabled={busy} onClick={() => void save()} className="cursor-pointer rounded-md border border-line px-3 py-1 text-xs font-medium hover:bg-hover disabled:opacity-50">
               {busy ? "Saving…" : "Save limits"}

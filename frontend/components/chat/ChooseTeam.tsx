@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "@/lib/api";
+import { collaboration } from "@/lib/collaboration";
+import { loadDraft, saveDraft } from "@/lib/drafts";
 import { BusinessProfileForm } from "./BusinessProfileForm";
 import { WorkerGrants } from "./WorkerGrants";
 import { EmptyPanel, ErrorState, LoadingState } from "./PanelState";
@@ -12,7 +14,10 @@ import {
   groupByCategory,
   hireableChoices,
   hireSummary,
+  LEAD_INTERVIEW_PROMPT,
+  leadAgentId,
   MAX_HIRE,
+  newSuggestionSince,
   preTick,
   requirementBadges,
   SETUP_DEPTH_LABELS,
@@ -20,6 +25,7 @@ import {
   suggestionReasons,
   toggleChoice,
   type HireReceipt,
+  type LatestSuggestion,
   type SuggestGoal,
   type TemplateCatalog,
 } from "@/lib/templates";
@@ -59,6 +65,11 @@ export function ChooseTeam({
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [helpNote, setHelpNote] = useState<string | null>(null);
   const [profileDone, setProfileDone] = useState(false);
+  // "Chat with your team lead instead": the baseline is the newest suggestion that already existed when the
+  // chat was opened, so only a suggestion made after that is offered.
+  const [chatBaseline, setChatBaseline] = useState<number | null>(null);
+  const [chatNote, setChatNote] = useState<string | null>(null);
+  const [leadSuggestion, setLeadSuggestion] = useState<LatestSuggestion | null>(null);
   // Workers an earlier hire already made, and the ones the person chose to add another copy of.
   const [added, setAdded] = useState<string[]>([]);
   const [copies, setCopies] = useState<string[]>([]);
@@ -108,6 +119,56 @@ export function ChooseTeam({
     } finally {
       setBusy(false);
     }
+  };
+
+  // Opens a chat with the team lead in a new tab with a short interview already typed in. When the lead
+  // suggests workers, this screen offers "Use these suggestions". Nothing is created or granted by chatting.
+  const openLeadChat = async () => {
+    setChatNote(null);
+    try {
+      const lead = leadAgentId(await collaboration.team());
+      if (lead === null) {
+        setChatNote("No team lead is set up yet. Use the quick questions, or set a lead in Team first.");
+        return;
+      }
+      const latest = await api.latestWorkerSuggestion().catch(() => null);
+      setChatBaseline(latest?.created_at ?? Date.now() / 1000);
+      setLeadSuggestion(null);
+      // Keep an unsent message the person already typed; otherwise start the interview for them.
+      const keptDraft = loadDraft("new").trim() !== "";
+      if (!keptDraft) saveDraft("new", LEAD_INTERVIEW_PROMPT);
+      window.open(`/chat/?agent=${lead}`, "_blank", "noopener");
+      setChatNote(
+        keptDraft
+          ? "Opened your team lead in a new tab. Ask it to suggest ready-made workers; this page will offer them here."
+          : "Opened your team lead in a new tab with a short interview typed in. Send it; this page will offer the workers it suggests.",
+      );
+    } catch {
+      setChatNote("Could not open the team lead. Nothing was changed.");
+    }
+  };
+
+  useEffect(() => {
+    if (chatBaseline === null || leadSuggestion !== null || receipt !== null) return;
+    let stopped = false;
+    const check = () =>
+      api.latestWorkerSuggestion().then((latest) => {
+        const fresh = newSuggestionSince(latest, chatBaseline);
+        if (!stopped && fresh) setLeadSuggestion(fresh);
+      }, () => {});
+    const timer = window.setInterval(() => void check(), 3000);
+    const giveUp = window.setTimeout(() => window.clearInterval(timer), 15 * 60 * 1000);
+    return () => { stopped = true; window.clearInterval(timer); window.clearTimeout(giveUp); };
+  }, [chatBaseline, leadSuggestion, receipt]);
+
+  const useLeadSuggestion = () => {
+    if (!leadSuggestion) return;
+    const ids = preTick(leadSuggestion.suggestions, catalog?.templates ?? []);
+    setChosen(ids);
+    setReasons(suggestionReasons(leadSuggestion.suggestions.filter((s) => ids.includes(s.template_id))));
+    setHelpNote(ids.length === 0 ? "None of those can be added right now." : `I ticked ${ids.length}. Change them as you like, then add.`);
+    setLeadSuggestion(null);
+    setChatBaseline(null);
   };
 
   const hire = async () => {
@@ -179,10 +240,38 @@ export function ChooseTeam({
     <div className="space-y-4">
       {undone && <p role="status" className="text-xs text-muted">Those workers were removed.</p>}
       <p className="text-sm text-muted">Tick any workers you want, or none. You can add more later from Templates.</p>
+      {leadSuggestion && (
+        <section aria-label="Your team lead's suggestions" className="space-y-2 rounded-md border border-accent p-3">
+          <p className="text-xs font-medium">Your team lead suggested {leadSuggestion.suggestions.length} {leadSuggestion.suggestions.length === 1 ? "worker" : "workers"}:</p>
+          <ul className="space-y-1 text-xs">
+            {leadSuggestion.suggestions.map((s) => (
+              <li key={s.template_id}>
+                <strong>{catalog?.templates.find((t) => t.id === s.template_id)?.name ?? s.template_id}</strong>
+                {s.reason ? <span className="text-muted"> — {s.reason}</span> : null}
+              </li>
+            ))}
+          </ul>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={useLeadSuggestion} className="cursor-pointer rounded-md border border-line px-3 py-1 text-xs font-medium hover:bg-hover">
+              Use these suggestions
+            </button>
+            <button type="button" onClick={() => { setLeadSuggestion(null); setChatBaseline(null); }} className="cursor-pointer rounded-md px-3 py-1 text-xs text-muted hover:bg-hover">
+              Dismiss
+            </button>
+            <span className="text-xs text-muted">Nothing is added until you press Add.</span>
+          </div>
+        </section>
+      )}
       {!helpOpen ? (
-        <button type="button" onClick={openHelp} className="cursor-pointer rounded-md border border-line px-3 py-1 text-xs font-medium hover:bg-hover">
-          Help me choose
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={openHelp} className="cursor-pointer rounded-md border border-line px-3 py-1 text-xs font-medium hover:bg-hover">
+            Help me choose
+          </button>
+          <button type="button" onClick={() => void openLeadChat()} className="cursor-pointer rounded-md border border-line px-3 py-1 text-xs font-medium hover:bg-hover">
+            Chat with your team lead instead
+          </button>
+          {chatNote && <span role="status" className="min-w-0 break-words text-xs text-muted">{chatNote}</span>}
+        </div>
       ) : (
         <section aria-label="Help me choose" className="space-y-3 rounded-md border border-line p-3">
           <fieldset className="space-y-1">
@@ -222,9 +311,13 @@ export function ChooseTeam({
             >
               Suggest workers
             </button>
+            <button type="button" onClick={() => void openLeadChat()} className="cursor-pointer rounded-md border border-line px-3 py-1 text-xs font-medium hover:bg-hover">
+              Chat with your team lead instead
+            </button>
             <button type="button" onClick={() => setHelpOpen(false)} className="cursor-pointer rounded-md px-3 py-1 text-xs text-muted hover:bg-hover">
               Close
             </button>
+            {chatNote && <span role="status" className="min-w-0 break-words text-xs text-muted">{chatNote}</span>}
             {helpNote && <span role="status" className="text-xs text-muted">{helpNote}</span>}
           </div>
         </section>

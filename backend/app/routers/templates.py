@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.routers.agents import get_runtime
-from app.services import workspace_connections
+from app.services import worker_suggestions, workspace_connections
 from app.services.local_access_policy import require_local_access
 from app.services.thread_runtime import ThreadRuntime
 from app.templates import catalog, hire, suggest
@@ -213,6 +213,23 @@ class SuggestResponse(BaseModel):
 @router.get("/suggest/goals", response_model=list[SuggestGoalResponse])
 async def suggest_goals():
     return [SuggestGoalResponse(key=key, label=label) for key, (label, _) in suggest.GOALS.items()]
+
+
+class LatestSuggestionResponse(BaseModel):
+    suggestions: list[SuggestionResponse]
+    created_at: float
+
+
+@router.get("/suggest/latest", response_model=LatestSuggestionResponse | None)
+async def latest_suggestion():
+    """The team lead's latest fresh worker suggestion from a chat, or null. Read-only; only bundled ids are returned."""
+    found = worker_suggestions.latest()
+    if found is None:
+        return None
+    return LatestSuggestionResponse(
+        suggestions=[SuggestionResponse(template_id=s["template_id"], reason=s["reason"]) for s in found["suggestions"]],
+        created_at=found["created_at"],
+    )
 
 
 @router.post("/suggest", response_model=SuggestResponse)

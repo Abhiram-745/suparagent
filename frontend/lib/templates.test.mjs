@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { api, ApiError } from './api.ts';
-import { addedTemplateIds, categoryLabel, filterTemplates, groupByCategory, hireableChoices, preTick, suggestionReasons, hireSummary, installTemplateSkills, MAX_HIRE, toggleChoice, requirementBadges, requirementLabel, skillInstallNotice, starterRoutinesLabel, uniqueAgentName } from './templates.ts';
+import { addedTemplateIds, categoryLabel, LEAD_INTERVIEW_PROMPT, leadAgentId, newSuggestionSince, filterTemplates, groupByCategory, hireableChoices, preTick, suggestionReasons, hireSummary, installTemplateSkills, MAX_HIRE, toggleChoice, requirementBadges, requirementLabel, skillInstallNotice, starterRoutinesLabel, uniqueAgentName } from './templates.ts';
 
 const t = (id, name, role, category, description = '') => ({ id, name, role, category, description, instructions: '', color: '#000000', example_requests: [], requires: [], available: true, missing: [], starter_notes: null, skills: [], routines: [], suggested_tools: [], setup_depth: 'express', setup_text: null });
 const list = [
@@ -160,4 +160,27 @@ test('a worker counts as added only while an agent still has its instructions an
   assert.deepEqual(addedTemplateIds(agents, [seo, lead, blank]), ['work-seo']);
   assert.deepEqual(addedTemplateIds([], [seo]), []);
   assert.deepEqual(addedTemplateIds([{ instructions: null }], [seo]), []);
+});
+
+test('a lead suggestion counts only when it is newer than the one that existed when the chat opened', () => {
+  const suggestions = [{ template_id: 'marketing-seo-writer', reason: 'You want articles' }];
+  assert.equal(newSuggestionSince(null, 0), null);
+  assert.equal(newSuggestionSince(undefined, 0), null);
+  assert.equal(newSuggestionSince({ suggestions: [], created_at: 10 }, 0), null);
+  assert.equal(newSuggestionSince({ suggestions, created_at: 10 }, 10), null);
+  assert.equal(newSuggestionSince({ suggestions, created_at: 9 }, 10), null);
+  assert.deepEqual(newSuggestionSince({ suggestions, created_at: 11 }, 10), { suggestions, created_at: 11 });
+});
+
+test('the lead is read from the team state, falling back to the agent marked as lead', () => {
+  assert.equal(leadAgentId(null), null);
+  assert.equal(leadAgentId({ team: null, agents: [{ id: 3, is_lead: false }] }), null);
+  assert.equal(leadAgentId({ team: { lead_agent_id: 7 }, agents: [] }), 7);
+  assert.equal(leadAgentId({ team: { lead_agent_id: null }, agents: [{ id: 3, is_lead: false }, { id: 4, is_lead: true }] }), 4);
+});
+
+test('the interview prompt asks for questions and a suggestion, and forbids creating anything', () => {
+  assert.match(LEAD_INTERVIEW_PROMPT, /suggest_workers/);
+  assert.match(LEAD_INTERVIEW_PROMPT, /Do not create anything/);
+  assert.ok(LEAD_INTERVIEW_PROMPT.length < 500);
 });

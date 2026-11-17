@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { centsToDollars, dollarsToCents, limitsSentence, outcomeLabel, pauseReasonLabel, spendLine } from './spend.ts';
+import { centsToDollars, dollarsToCents, limitSourceLabel, limitsSentence, outcomeLabel, pauseReasonLabel, saveFailureMessage, spendLine } from './spend.ts';
 
 test('cents show as dollars with two decimals', () => {
   assert.equal(centsToDollars(50), '$0.50');
@@ -47,4 +47,20 @@ test('a run shows what it spent and what was refused, and nothing when neither h
   assert.equal(spendLine({ spend: { cents: 0, calls: 0, refused: [] } }), null);
   assert.equal(spendLine(null), null);
   assert.equal(spendLine({ other: 1 }), null);
+});
+
+test('a limit says where its value comes from, and an unknown source says nothing', () => {
+  assert.equal(limitSourceLabel('database'), 'set in settings');
+  assert.equal(limitSourceLabel('environment'), "from the server's environment");
+  assert.equal(limitSourceLabel('default'), 'default');
+  assert.equal(limitSourceLabel('other'), null);
+  assert.equal(limitSourceLabel(undefined), null);
+});
+
+test('a failed save reads as a plain sentence for each status', () => {
+  assert.equal(saveFailureMessage(404, null), 'This server does not allow changing the spending limits.');
+  assert.equal(saveFailureMessage(409, 'Spending limits cannot be changed right now.'), 'Spending limits cannot be changed right now.');
+  assert.match(saveFailureMessage(409, ''), /cannot be changed right now/);
+  assert.equal(saveFailureMessage(500, 'Boom'), 'Boom');
+  assert.equal(saveFailureMessage(500, null), 'Could not save the limits.');
 });

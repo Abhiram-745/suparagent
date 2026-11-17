@@ -48,3 +48,30 @@ test('saving sends the opened hash, or none when overwriting', async () => {
   assert.deepEqual(bodies[1].body, { fields: { sells: 'candles' } });
   assert.match(bodies[0].url, /\/business-profile$/);
 });
+
+const proposal = (over = {}) => ({
+  id: 'p1', field: 'hours', label: 'Hours and place', text: 'Open daily', reason: 'the site says so',
+  agent_id: 3, agent_name: 'SEO writer', base_text: 'Open Monday to Friday', created_at: 10, ...over,
+});
+
+test('the tab label shows how many suggested changes are waiting', async () => {
+  const { profileTabLabel } = await import('./business-profile.ts');
+  assert.equal(profileTabLabel(0), 'Business profile');
+  assert.equal(profileTabLabel(2), 'Business profile (2)');
+});
+
+test('a suggestion names the worker and the field, and shows what it replaces', async () => {
+  const { proposalTitle, proposalBefore } = await import('./business-profile.ts');
+  assert.equal(proposalTitle(proposal()), 'SEO writer suggests a change to Hours and place');
+  assert.equal(proposalTitle(proposal({ agent_name: '  ' })), 'A worker suggests a change to Hours and place');
+  assert.equal(proposalBefore(proposal()), 'Open Monday to Friday');
+  assert.equal(proposalBefore(proposal({ base_text: '  ' })), '(empty)');
+});
+
+test('pending suggestions are listed oldest first and a bad shape is an empty list', async () => {
+  const { pendingProposals } = await import('./business-profile.ts');
+  const list = pendingProposals([proposal({ id: 'b', created_at: 20 }), proposal({ id: 'a', created_at: 5 })]);
+  assert.deepEqual(list.map((i) => i.id), ['a', 'b']);
+  assert.deepEqual(pendingProposals(null), []);
+  assert.deepEqual(pendingProposals(undefined), []);
+});
