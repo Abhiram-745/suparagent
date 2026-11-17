@@ -15,6 +15,7 @@ import stat
 import sys
 import tempfile
 import uuid
+import uuid
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -26,10 +27,11 @@ from app import community_mcp, custom_mcp_oauth
 from app.core import tool_timeout
 from app.core.logging import get_logger
 from app.db.models import (
-    Agent, Approval, CommunityMcpConnection, CommunityMcpToolGrant, CustomMcpConnection, CustomMcpToolGrant,
+    Agent, AgentServiceAudit, Approval, CommunityMcpConnection, CommunityMcpToolGrant, CustomMcpConnection, CustomMcpToolGrant,
     Thread, Turn,
 )
-from app.services import spend, user_credential_service
+from app.services import agent_service_policy, spend, user_credential_service
+from app.services.agent_service_store import provider_identifiers, provider_resources, unassigned_providers
 
 logger = get_logger(__name__)
 
@@ -296,7 +298,15 @@ class CommunityMcpBridge:
             .order_by(CustomMcpConnection.id, CustomMcpToolGrant.tool_name)
         )).all()
         snapshot = []
+        # A mailbox/number provider is mounted only for an agent that has one of its resources assigned.
+        connection_ids = sorted({connection.id for connection, _ in rows})
+        services = await provider_resources(db, agent_id, connection_ids)
+        identifiers = await provider_identifiers(db, agent_id, connection_ids) if services else {}
         for connection, grant in rows:
+            if connection.id in services and not services[connection.id][1]:
+                continue
+            if connection.id in services and agent_service_policy.blocked(services[connection.id][0], grant.tool_name):
+                continue  # a tool agents never get for this provider (it spends money or changes inbound settings)
             if connection.tested_revision != connection.revision or connection.tools_snapshot is None:
                 continue
             if connection.auth_mode not in ("none", "bearer", "header", "oauth"):
@@ -327,6 +337,10 @@ class CommunityMcpBridge:
                 "manifest": {"slug": connection.id, "name": connection.name, "endpoint": connection.endpoint,
                              "auth_mode": connection.auth_mode, "auth_header_name": connection.auth_header_name},
                 "name": connection.name[:120],
+                # The agent-owned addresses this call would act as; shown on the approval card.
+                **({"service": {"provider": services[connection.id][0], "resources": services[connection.id][1],
+                                       "identifiers": identifiers.get(connection.id, [])}}
+                   if connection.id in services else {}),
                 "grant": {
                     "tool_name": grant.tool_name, "schema_digest": grant.schema_digest,
                     "input_schema": grant.input_schema, "description": grant.description,
@@ -344,6 +358,22 @@ class CommunityMcpBridge:
         return SimpleNamespace(command=sys.executable,
                                args=["-m", "app.community_mcp_server", "--mailbox", str(self.folder), "--tools", str(self.tools_path)],
                                env={"PYTHONPATH": root})
+
+    def argument_refusal(self, alias: str, arguments: dict | None) -> str | None:
+        """Before any approval card: a reason code when this call names an inbox the agent was not given.
+
+        Uses the addresses assigned when the turn started; `execute` checks again against the current ones."""
+        args = arguments if isinstance(arguments, dict) else {}
+        if alias == BROKER_CALL:
+            alias, args = args.get("ref"), args.get("arguments")
+        item = self.aliases.get(alias) if isinstance(alias, str) else None
+        service = item.get("service") if item else None
+        if not service:
+            return None
+        return agent_service_policy.refusal(
+            service.get("provider", ""), item["input_schema"], args if isinstance(args, dict) else {},
+            list(service.get("resources", [])), tool_name=item["remote_name"],
+            identifiers=list(service.get("identifiers", [])))
 
     @property
     def aliases_allowed(self) -> list[str]:
@@ -364,7 +394,12 @@ class CommunityMcpBridge:
         if item.get("kind") == "custom":
             from urllib.parse import urlsplit
             host = urlsplit(str(item["manifest"].get("endpoint", ""))).hostname or "unknown host"
-            return f"Custom MCP {item['name']} ({host}): {item['remote_name']}"[:200]
+            text = f"Custom MCP {item['name']} ({host}): {item['remote_name']}"[:200]
+            service = item.get("service")
+            if service and service.get("resources"):
+                # An agent-owned mailbox or number: name it, so the owner sees which identity would act.
+                text += " | agent " + ("number" if service.get("provider") == "agentphone" else "address")                     + ": " + ", ".join(str(address)[:100] for address in service["resources"][:5])
+            return text
         return f"{item['name']}: {item['remote_name']}"[:200]
 
     @property
@@ -577,6 +612,8 @@ class CommunityMcpBridge:
                 or grant is None or grant.schema_digest != item["schema_digest"]
                 or grant.input_schema != item["input_schema"]):
             return None
+        if custom and await unassigned_providers(db, agent.id, [connection.id]):
+            return None
         if custom:
             return {"slug": connection.id, "name": connection.name, "endpoint": connection.endpoint,
                     "auth_mode": connection.auth_mode, "auth_header_name": connection.auth_header_name}
@@ -687,6 +724,21 @@ class CommunityMcpBridge:
                                 "code": "already_attempted"}
                     receipt_id = receipt.id
                 approval.consumed_at = team_service.now()
+                audit_id = None
+                service = item.get("service")
+                if service and service.get("resources"):
+                    # Which agent acted as which agent-owned address. No arguments or message text are kept.
+                    agent = await db.get(Agent, self.run.agent_id)
+                    audit_id = uuid.uuid4().hex
+                    db.add(AgentServiceAudit(
+                        id=audit_id, owner_id=self.runtime.owner_id, agent_id=self.run.agent_id,
+                        agent_name=(agent.name if agent is not None else "")[:100],
+                        connection_id=item["connection_id"], connection_name=str(item.get("name", ""))[:120],
+                        provider=str(service.get("provider", ""))[:32], tool_name=item["remote_name"][:200],
+                        resources=list(service["resources"]), outcome="dispatched",
+                        approved_by=(approval.decided_by_label or None) and approval.decided_by_label[:100],
+                        thread_id=self.run.thread_id, turn_id=self.run.turn_id,
+                    ))
                 # Consumption is durable before network dispatch. The per-service
                 # process lock prevents local revoke/key changes until this single
                 # call has returned; uncertain outcomes never restore approval.
@@ -708,6 +760,14 @@ class CommunityMcpBridge:
                 await self._settle_spend(ledger_id, result, failure=failure)
             else:
                 await self._settle_spend(ledger_id, result)
+            if audit_id is not None:
+                async with self.runtime.session() as db:
+                    await begin_write(db)
+                    audit = await db.get(AgentServiceAudit, audit_id)
+                    if audit is not None:
+                        audit.outcome = ("outcome_unknown" if result.get("code") == "outcome_unknown" else
+                                         "failed" if result.get("error") or result.get("isError") else "completed")
+                        await db.commit()
             if receipt_id is not None:
                 async with self.runtime.session() as db:
                     await begin_write(db)
@@ -756,6 +816,20 @@ class CommunityMcpBridge:
             if manifest is None:
                 return {"error": "This call no longer has an active agent grant.", "code": "revoked"}
             custom = item.get("kind") == "custom"
+            assigned = identifiers = None
+            if custom and item.get("service"):
+                async with self.runtime.session() as db:
+                    found = await provider_resources(db, self.run.agent_id, [item["connection_id"]])
+                    ids = await provider_identifiers(db, self.run.agent_id, [item["connection_id"]])
+                assigned = list(found.get(item["connection_id"], ("", []))[1])
+                identifiers = list(ids.get(item["connection_id"], []))
+                reason = agent_service_policy.refusal(
+                    item["service"].get("provider", ""), item["input_schema"], arguments, assigned,
+                    tool_name=item["remote_name"], identifiers=identifiers)
+                if reason is not None:
+                    return {"error": ("This tool is not available to agents for this service." if reason == agent_service_policy.NOT_ALLOWED
+                                      else "This call does not name a mailbox or number assigned to this agent."),
+                            "code": reason}
             provider = (CUSTOM_CREDENTIAL_PREFIX if custom else "integration:community-mcp:") + str(item["manifest"]["slug"])
             token = None
             if custom and manifest.get("auth_mode") == "oauth":
@@ -805,6 +879,10 @@ class CommunityMcpBridge:
                 if result is None:
                     return {"error": "This call no longer has an active, unused approval and grant.",
                             "code": "not_approved"}
+                if assigned is not None and agent_service_policy.narrows_result(
+                        item["service"].get("provider", ""), item["remote_name"]):
+                    result = agent_service_policy.narrow_result(
+                        result, assigned, provider=item["service"].get("provider", ""), identifiers=identifiers or [])
                 return _redact(result, token)
             finally:
                 await session.close()

@@ -73,7 +73,7 @@ function ConnectionForm({ form, setForm, hasSecret, disabled }: {
   </div>;
 }
 
-export function CustomMcpSection({ agents }: { agents: MarketplaceAgent[] }) {
+export function CustomMcpSection({ agents, version = 0, onChanged }: { agents: MarketplaceAgent[]; version?: number; onChanged?: () => void }) {
   const [connections, setConnections] = useState<CustomMcpConnection[] | null>(null);
   const [tools, setTools] = useState<Record<string, CustomMcpTool[]>>({});
   const [draft, setDraft] = useState<Form>(EMPTY);
@@ -96,10 +96,17 @@ export function CustomMcpSection({ agents }: { agents: MarketplaceAgent[] }) {
   };
   const run = async (key: string, action: () => Promise<void>) => {
     setBusy(key); setError(null); setNotice(null);
-    try { await action(); } catch (reason) { setError(describeError(reason)); } finally { setBusy(null); }
+    try { await action(); onChanged?.(); } catch (reason) { setError(describeError(reason)); } finally { setBusy(null); }
   };
 
   const reload = useCallback(async () => setConnections(await api.listCustomMcp()), []);
+  // The other section changed a connection: show it as it is now (skipped on the first render, which loads below).
+  const firstVersion = useRef(version);
+  useEffect(() => {
+    if (version === firstVersion.current) return;
+    firstVersion.current = version;
+    api.listCustomMcp().then(setConnections).catch(() => undefined);
+  }, [version]);
   const [signingIn, setSigningIn] = useState<string | null>(null);
   const waited = useRef(0);
   // While a provider tab is open, look for the finished sign-in every couple of seconds (up to 10 minutes).

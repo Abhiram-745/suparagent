@@ -29,6 +29,7 @@ MAX_CATALOG_BYTES = 128_000
 MAX_MANIFEST_BYTES = 32_000
 MAX_SCHEMA_BYTES = 64_000
 MAX_RESULT_BYTES = 1_000_000
+_MAX_BOUND = 9_007_199_254_740_991  # 2**53 - 1
 MAX_REQUEST_BYTES = 64_000
 MAX_TOOLS = 100
 MAX_TOOLSET_BYTES = 512_000
@@ -310,6 +311,11 @@ def safe_schema(value: object, depth: int = 0) -> dict:
     if depth > MAX_DEPTH or not isinstance(value, dict) or len(canonical(value).encode("utf-8")) > MAX_SCHEMA_BYTES:
         raise McpError("unsupported_schema", "This tool's input schema is too large or complex.", 422)
     allowed = {"$schema", "type", "title", "description", "properties", "required", "additionalProperties", "items", "enum", "minimum", "maximum", "minLength", "maxLength", "minItems", "maxItems", "format", "default"}
+    # `propertyNames: {"type": "string"}` is what schema generators emit for a key/value map. JSON object keys are
+    # always text, so it constrains nothing: accepted and dropped. Any other propertyNames rule is still refused.
+    names = value.get("propertyNames")
+    if "propertyNames" in value and names == {"type": "string"}:
+        value = {key: item for key, item in value.items() if key != "propertyNames"}
     if set(value) - allowed:
         raise McpError("unsupported_schema", "This tool uses a schema feature Suparagent cannot validate safely.", 422)
     kind = value.get("type", "object")
@@ -333,7 +339,8 @@ def safe_schema(value: object, depth: int = 0) -> dict:
     for key in ("minimum", "maximum", "minLength", "maxLength", "minItems", "maxItems"):
         if key in value:
             item = value[key]
-            if not isinstance(item, (int, float)) or isinstance(item, bool) or abs(item) > 1_000_000:
+            # Up to JavaScript's largest safe integer: servers written in JS put it on every `offset` and `limit`.
+            if not isinstance(item, (int, float)) or isinstance(item, bool) or abs(item) > _MAX_BOUND:
                 raise McpError("unsupported_schema", "This tool has invalid input bounds.", 422)
             result[key] = item
     if "properties" in value:
@@ -349,7 +356,15 @@ def safe_schema(value: object, depth: int = 0) -> dict:
             raise McpError("unsupported_schema", "This tool has a required field without a schema.", 422)
         result["required"] = required
     additional = value.get("additionalProperties", True)
-    if not isinstance(additional, bool):
+    if additional == {}:
+        additional = True  # "any value", which is what `true` already means
+    elif isinstance(additional, dict):
+        # A key/value map ("variables": text to text). The value schema is read with the same rules as any other
+        # field, so it is bounded and has no regex, and every unlisted key's value is checked against it.
+        if kind != "object":
+            raise McpError("unsupported_schema", "This tool has schema fields that do not match its input type.", 422)
+        additional = safe_schema(additional, depth + 1)
+    elif not isinstance(additional, bool):
         raise McpError("unsupported_schema", "This tool uses unsupported dynamic input properties.", 422)
     result["additionalProperties"] = additional
     if kind == "array":
@@ -400,6 +415,11 @@ def validate_arguments(schema: dict, value: object, depth: int = 0) -> None:
         for name, child in props.items():
             if name in value:
                 validate_arguments(child, value[name], depth + 1)
+        extra = schema.get("additionalProperties")
+        if isinstance(extra, dict):
+            for name, item in value.items():
+                if name not in props:
+                    validate_arguments(extra, item, depth + 1)
     elif kind == "array":
         if len(value) > schema.get("maxItems", 1000) or len(value) < schema.get("minItems", 0):
             raise McpError("bad_arguments", "Tool arguments have an invalid array length.")
@@ -691,7 +711,7 @@ class RemoteMcpSession:
             return await self._list_tools()
 
     async def _list_tools(self) -> list[dict]:
-        tools, cursor, seen, total_bytes = [], None, set(), 0
+        tools, cursor, seen, total_bytes, unreadable = [], None, set(), 0, 0
         for _ in range(MAX_PAGES):
             params = {"cursor": cursor} if cursor else {}
             result = await self._rpc("tools/list", params)
@@ -702,6 +722,7 @@ class RemoteMcpSession:
                 try:
                     tool = _normalize_tool(raw)
                 except McpError:
+                    unreadable += 1
                     continue  # one tool Suparagent cannot validate must not hide the rest
                 total_bytes += len(canonical(tool).encode("utf-8"))
                 if total_bytes > self.max_toolset_bytes:
@@ -714,6 +735,9 @@ class RemoteMcpSession:
                     raise McpError("too_many_tools", "This remote server exposes too many tools.", 502)
             cursor = result.get("nextCursor")
             if cursor is None:
+                if not tools and unreadable:
+                    # Never report a server with tools we could not read as "connected, 0 tools".
+                    raise McpError("unsupported_tools", f"The server lists {unreadable} tools, but none could be read by this app.", 502)
                 return tools
             if not isinstance(cursor, str) or len(cursor) > 1000 or cursor in seen:
                 raise McpError("invalid_response", "The remote MCP server returned an invalid pagination cursor.", 502)
@@ -753,7 +777,8 @@ class RemoteMcpSession:
 
 
 def _normalize_tool(raw: object) -> dict:
-    if not isinstance(raw, dict) or set(raw) - {"name", "title", "description", "inputSchema", "outputSchema", "annotations", "_meta"}:
+    # The MCP tool fields (`icons` and `execution` are newer ones, ignored here). Anything else is refused.
+    if not isinstance(raw, dict) or set(raw) - {"name", "title", "description", "inputSchema", "outputSchema", "annotations", "_meta", "icons", "execution"}:
         raise McpError("invalid_response", "The remote MCP server returned an unsupported tool definition.", 502)
     name = raw.get("name")
     if not isinstance(name, str) or not name or len(name) > 200:

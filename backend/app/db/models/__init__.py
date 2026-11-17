@@ -23,6 +23,9 @@ from app.db.models.people import PeopleAudit, Person, PersonInvite
 from app.db.models.work_item import WorkBoard, WorkColumn, WorkItem, WorkItemRun, WorkItemEvent
 from app.db.models.community_mcp import CommunityMcpConnection, CommunityMcpToolGrant
 from app.db.models.custom_mcp import CustomMcpConnection, CustomMcpOAuthFlow, CustomMcpToolGrant
+from app.db.models.agent_service import (
+    AgentServiceAssignment, AgentServiceAudit, AgentServiceProvider, AgentServiceResource,
+)
 from app.db.models.workflow import Workflow, WorkflowRun
 
 __all__ = [
@@ -34,6 +37,10 @@ __all__ = [
     "CustomMcpConnection",
     "CustomMcpOAuthFlow",
     "CustomMcpToolGrant",
+    "AgentServiceAssignment",
+    "AgentServiceAudit",
+    "AgentServiceProvider",
+    "AgentServiceResource",
     "Tasks",
     "LinkCode",
     "Schedule",

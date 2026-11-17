@@ -23,7 +23,7 @@ from app import custom_mcp_oauth_loopback as loopback
 from app.core import crypto
 from app.core.config import settings
 from app.auth.middleware import principal_of
-from app.db.models import Agent, CustomMcpConnection, CustomMcpOAuthFlow, CustomMcpToolGrant, Person, UserCredential
+from app.db.models import Agent, AgentServiceProvider, CustomMcpConnection, CustomMcpOAuthFlow, CustomMcpToolGrant, Person, UserCredential
 from app.db.session import get_db
 from app.db.transactions import begin_write, release_snapshot
 from app.desktop import profile
@@ -38,7 +38,8 @@ from app.schemas.custom_mcp import (
     CustomMcpToolOut,
     CustomMcpUpdate,
 )
-from app.services import user_credential_service
+from app.services import agent_service_policy, user_credential_service
+from app.services.agent_service_store import remove_provider_data
 from app.services.local_access_policy import require_local_access
 from app.services.thread_runtime import LOCAL_OWNER_ID
 
@@ -567,6 +568,7 @@ async def delete_connection(connection_id: str, response: Response, db: AsyncSes
         if row is None or not _allowed(row, removal=True):
             raise _fail(404, "connection_not_found")
         await _delete_grants(db, row.id)
+        await remove_provider_data(db, row.id)
         await _delete_credential(db, row.id)
         await oauth.delete_record(db, LOCAL_OWNER_ID, row.id)
         await _delete_flows(db, row.id)
@@ -828,6 +830,10 @@ async def set_grants(
     names = [selection.name for selection in payload.tools]
     if len(set(names)) != len(names):
         raise _fail(422, "invalid_tool_grant")
+    service = await db.get(AgentServiceProvider, connection_id)
+    if service is not None and any(agent_service_policy.blocked(service.provider, name) for name in names):
+        # A tool agents never get for this mailbox/number provider (it spends money or changes inbound settings).
+        raise _fail(422, "tool_not_allowed_for_agents")
     endpoint = row.endpoint
     token, header = await _auth_for(db, row)
     try:
