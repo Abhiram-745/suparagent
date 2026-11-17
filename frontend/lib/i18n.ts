@@ -451,7 +451,7 @@ export const en = {
   "room.saving": "Saving…",
   "onboarding.step.welcome": "Welcome",
   "onboarding.step.engine": "Connect an AI",
-  "onboarding.step.agent": "Your first agent",
+  "onboarding.step.agent": "Your first agent and team",
   "onboarding.step.ready": "Ready",
   "onboarding.error.readUnavailable": "Could not read setup progress.",
   "onboarding.error.saveConflict": "Setup changed in another window. Reload saved progress to continue.",

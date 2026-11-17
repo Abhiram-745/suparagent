@@ -1,6 +1,6 @@
 # Templates
 
-Templates are ready-made starting points for new agents. Open **Agents → Templates…** to browse a bundled list of roles, filter by category (Everyday, Work, Writing, Design, Sales, Marketing, Personal) and search by name, role, description or category.
+Templates are ready-made starting points for new agents. Open **Agents → Templates…** to browse a bundled list of roles, filter by category (Everyday, Sales, Marketing, Support, Web) and search by name, role, description or category.
 
 ## What choosing one does
 
@@ -14,7 +14,7 @@ Some templates suggest skills (text instructions the agent can be asked to follo
 
 ## Workers
 
-A few templates are **workers**: roles built around scheduled, MuAPI-backed jobs (SEO writer, Lead researcher, Daily briefer). Each card also shows its **starter routines (paused)** and a **setup depth** (Express, Standard or Guided). These are descriptions only: choosing a worker fills the form like any other template and creates no routine, schedules nothing and grants no tool. A worker's instructions are its short role text followed once by shared run rules (drafts only, a fixed order for paid lookups, one run record per run). Suggested MuAPI tools are named for you to grant later; they are never granted by choosing a template.
+The bundled templates are eight **workers**: Daily briefer, Lead researcher, Outreach drafter, SEO writer, Social media manager, Ad manager, Customer care and Site keeper. The first five use MuAPI data tools; Ad manager, Customer care and Site keeper work from what you paste or point them to and make no paid calls. Each card also shows its **starter routines (paused)** and a **setup depth** (Express, Standard or Guided). These are descriptions only: choosing a worker fills the form like any other template and creates no routine, schedules nothing and grants no tool. A worker's instructions are its short role text followed once by shared run rules (drafts only, a fixed order for paid lookups, one run record per run). Suggested MuAPI tools are named for you to grant later; they are never granted by choosing a template.
 
 ## Roles that need a connection
 
@@ -32,7 +32,7 @@ Saved presets, a public or organisation catalog, team packages, importing from G
 
 ## Adding several at once
 
-Setup has a "Choose your team" step, and Agents → Templates has "Hire several". Both list every bundled worker by category with its setup depth and any connection it needs, and let the person tick none, some or all (up to eight). Adding calls `POST /templates/hire` once with template ids only: every agent, skill, note and paused routine is created together, or none are. Workers ask first, hold no connected-app access and have no schedule.
+Setup has a "Choose your team" step, and Agents → Templates has "Hire several". Setup shows up to eight workers under the lead form (when the lead leads a team); Hire several lists every bundled worker by category with its setup depth and any connection it needs, and let the person tick none, some or all (up to eight). Adding calls `POST /templates/hire` once with template ids only: every agent, skill, note and paused routine is created together, or none are. Workers ask first, hold no connected-app access and have no schedule.
 
 **Help me choose.** The Choose your team screen has a Help me choose button with three questions: what you want help with (a short list), what the business does (optional) and whether to show only workers that start with no questions. The answer ticks matching workers for you to change. Ranking uses only the bundled catalog (`backend/app/templates/suggest.py`): no model call, no network, nothing created, nothing granted. The team lead has a read-only `suggest_workers` tool with the same ranking. The first version asks its questions on the screen; a lead interview in chat that fills in the ticks is not built.
 

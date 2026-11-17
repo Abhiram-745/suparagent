@@ -13,14 +13,14 @@ from app.templates import catalog
 # A short closed list the screen offers as choices. Each maps to the workers
 # that serve it, in the order they are preferred.
 GOALS: dict[str, tuple[str, tuple[str, ...]]] = {
-    "content": ("Write articles and posts that bring in visitors", ("marketing-seo-writer", "writing-draftsman")),
-    "leads": ("Find companies and people who could buy", ("sales-lead-researcher", "sales-rehearse")),
-    "research": ("Look into a topic or a market", ("everyday-digger", "sales-lead-researcher", "marketing-seo-writer")),
-    "briefing": ("Start each day with a short summary", ("everyday-daily-briefer", "work-recap")),
-    "writing": ("Draft and tidy up my writing", ("writing-draftsman", "writing-plainer")),
-    "data": ("Make sense of numbers and spreadsheets", ("work-numbers",)),
-    "organise": ("Plan my week and keep track of work", ("everyday-planner", "work-runbook")),
-    "learning": ("Learn something new", ("personal-tutor",)),
+    "briefing": ("Start each day with a short summary", ("everyday-daily-briefer",)),
+    "leads": ("Find companies and people who could buy", ("sales-lead-researcher", "sales-outreach-drafter")),
+    "outreach": ("Write to people who could become customers", ("sales-outreach-drafter", "sales-lead-researcher")),
+    "content": ("Write articles that bring in visitors", ("marketing-seo-writer", "marketing-social-manager")),
+    "social": ("Keep my social accounts active", ("marketing-social-manager",)),
+    "ads": ("Get more from my advertising", ("marketing-ad-manager",)),
+    "support": ("Answer customers and keep them happy", ("support-customer-care",)),
+    "website": ("Keep my website healthy", ("web-site-keeper",)),
 }
 
 SETUP_RANK = {"express": 0, "standard": 1, "guided": 2}

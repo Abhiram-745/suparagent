@@ -21,13 +21,17 @@ import { Stepper } from "./ui/Stepper";
 import { ThemeToggle } from "./ui/ThemeToggle";
 import { LanguageSelect } from "./settings/LanguageSelect";
 
+// A lead is the default whenever the chosen engine has team tools, so the helpers step appears without a hunt for a checkbox.
+function leadDefault(items: Engine[], provider: string): boolean {
+  return !!items.find((item) => item.id === provider)?.capabilities.mcp;
+}
+
 export function OnboardingApp() {
   const t = useT();
   const router = useRouter();
   const tRef = useRef(t);
   useEffect(() => { tRef.current = t; }, [t]);
-  // "Team" is plain English like the Choose your team screen itself; it has no translations yet.
-  const steps = [t("onboarding.step.welcome"), t("onboarding.step.engine"), t("onboarding.step.agent"), "Team", t("onboarding.step.ready")];
+  const steps = [t("onboarding.step.welcome"), t("onboarding.step.engine"), t("onboarding.step.agent"), t("onboarding.step.ready")];
   const starterRoles = [
     { name: t("onboarding.role.writing.name"), purpose: t("onboarding.role.writing.purpose"), first_request: t("onboarding.role.writing.firstRequest") },
     { name: t("onboarding.role.research.name"), purpose: t("onboarding.role.research.purpose"), first_request: t("onboarding.role.research.firstRequest") },
@@ -85,7 +89,7 @@ export function OnboardingApp() {
     setDraft(previous => {
       if (!previous || previous.provider) return previous;
       const provider = firstReadyEngine(items);
-      return provider ? { ...previous, provider } : previous;
+      return provider ? { ...previous, provider, make_lead: previous.create_agent && leadDefault(items, provider) } : previous;
     });
   }, []);
 
@@ -168,10 +172,13 @@ export function OnboardingApp() {
     );
   }
 
+  // Stored step 3 (the old separate Team step) is shown on the agent screen, so saved progress still opens somewhere sensible.
+  const screen = draft.step === 3 ? 2 : draft.step;
+  const showTeam = draft.create_agent && draft.make_lead && !!engine?.capabilities.mcp;
   const locked = saving || working;
   const canContinue = !locked && !saveError
-    && !(draft.step === 1 && !engine?.available)
-    && !(draft.step === 2 && draft.create_agent && (!draft.name.trim() || !draft.purpose.trim()));
+    && !(screen === 1 && !engine?.available)
+    && !(screen === 2 && draft.create_agent && (!draft.name.trim() || !draft.purpose.trim()));
   const hostNote = state.execution_host === "desktop"
     ? t("onboarding.host.desktop")
     : t("onboarding.host.server");
@@ -181,9 +188,9 @@ export function OnboardingApp() {
     <main className="mx-auto min-h-dvh min-w-0 max-w-2xl space-y-6 px-5 py-8">
       {header}
       {error && <Banner tone="danger">{error}</Banner>}
-      <Stepper steps={steps} current={draft.step} />
+      <Stepper steps={steps} current={screen === 4 ? 3 : screen} />
       <section className="min-w-0 space-y-5 rounded-card border border-line bg-raised p-5" aria-label={t("onboarding.ariaLabel")}>
-        {draft.step === 0 && (
+        {screen === 0 && (
           <>
             <h1 className="text-heading font-semibold">{t("onboarding.welcome.title")}</h1>
             <p>{t("onboarding.welcome.description")}</p>
@@ -192,20 +199,20 @@ export function OnboardingApp() {
             {state.existing_agents && <p className="text-sm">{t("onboarding.welcome.existingAgents")}</p>}
           </>
         )}
-        {draft.step === 1 && (
+        {screen === 1 && (
           <>
             <h1 className="text-title font-semibold">{t("onboarding.engine.title")}</h1>
             <p className="text-sm text-muted">{t("onboarding.engine.description")}</p>
             {engines.length > 0 && (
-              <EngineModelFields engines={engines} provider={draft.provider} model={draft.model} disabled={working} showEffort={false} onChange={(provider, model) => change({ provider, model, make_lead: false })} />
+              <EngineModelFields engines={engines} provider={draft.provider} model={draft.model} disabled={working} showEffort={false} onChange={(provider, model) => change({ provider, model, make_lead: draft.create_agent && leadDefault(engines, provider) })} />
             )}
             <EngineSettings onEnginesChanged={enginesChanged} />
           </>
         )}
-        {draft.step === 2 && (
+        {screen === 2 && (
           <>
             <h1 className="text-title font-semibold">{t("onboarding.agent.title")}</h1>
-            <Checkbox label={t("onboarding.agent.createStarter")} checked={draft.create_agent} disabled={working} onChange={(event) => change({ create_agent: event.target.checked, make_lead: false })} />
+            <Checkbox label={t("onboarding.agent.createStarter")} checked={draft.create_agent} disabled={working} onChange={(event) => change({ create_agent: event.target.checked, make_lead: event.target.checked && leadDefault(engines, draft.provider) })} />
             {draft.create_agent ? (
               <>
                 <div className="flex flex-wrap gap-2">
@@ -223,26 +230,25 @@ export function OnboardingApp() {
                   <Checkbox label={t("onboarding.agent.makeLead")} checked={draft.make_lead} disabled={working} onChange={(event) => change({ make_lead: event.target.checked })} />
                 )}
                 <p className="text-xs text-muted">{t("onboarding.agent.askFirstNote")}</p>
+                {showTeam && (
+                  <div className="space-y-3 border-t border-line pt-4">
+                    <h2 className="text-sm font-semibold">Add a few helpers (optional)</h2>
+                    <ChooseTeam
+                      shortlist
+                      provider={draft.provider || undefined}
+                      model={draft.model || undefined}
+                      onHired={(receipt) => setHiredCount(receipt.workers.length)}
+                      onUndone={() => setHiredCount(0)}
+                    />
+                  </div>
+                )}
               </>
             ) : (
               <p className="text-sm text-muted">{t("onboarding.agent.existing")}</p>
             )}
           </>
         )}
-        {draft.step === 3 && (
-          <>
-            <h1 className="text-title font-semibold">Choose your team</h1>
-            <ChooseTeam
-              provider={draft.provider || undefined}
-              model={draft.model || undefined}
-              skipLabel="Skip this step"
-              onSkip={() => change({ step: 4 })}
-              onHired={(receipt) => setHiredCount(receipt.workers.length)}
-              onUndone={() => setHiredCount(0)}
-            />
-          </>
-        )}
-        {draft.step === 4 && (
+        {screen === 4 && (
           <>
             <h1 className="text-title font-semibold">{t("onboarding.ready.title")}</h1>
             <p className="text-sm">{engine?.label ?? draft.provider} · {draft.model || t("onboarding.model.default")}</p>
@@ -273,9 +279,9 @@ export function OnboardingApp() {
           }>{saveError}</Banner>
         )}
         <div className="flex flex-wrap gap-2">
-          {draft.step > 0 && <Button disabled={locked} onClick={() => change({ step: draft.step - 1 })}>{t("onboarding.back")}</Button>}
-          {draft.step < 4
-            ? <Button variant="primary" disabled={!canContinue} onClick={() => change({ step: draft.step + 1 })}>{t("onboarding.continue")}</Button>
+          {screen > 0 && <Button disabled={locked} onClick={() => change({ step: screen === 4 ? 2 : screen - 1 })}>{t("onboarding.back")}</Button>}
+          {screen < 4
+            ? <Button variant="primary" disabled={!canContinue} onClick={() => change({ step: screen === 2 ? 4 : screen + 1 })}>{t("onboarding.continue")}</Button>
             : <Button variant="primary" disabled={locked || !!saveError} loading={working} onClick={() => void finish()}>{working ? t("onboarding.saving") : t("onboarding.openChat")}</Button>}
           <Button className="ml-auto" variant="ghost" disabled={locked} onClick={() => void finish(true)}>{t("onboarding.setUpLater")}</Button>
         </div>

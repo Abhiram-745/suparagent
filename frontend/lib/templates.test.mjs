@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { api, ApiError } from './api.ts';
-import { addedTemplateIds, categoryLabel, LEAD_INTERVIEW_PROMPT, leadAgentId, newSuggestionSince, filterTemplates, groupByCategory, hireableChoices, preTick, suggestionReasons, hireSummary, installTemplateSkills, MAX_HIRE, toggleChoice, requirementBadges, requirementLabel, skillInstallNotice, starterRoutinesLabel, uniqueAgentName } from './templates.ts';
+import { addedTemplateIds, categoryLabel, LEAD_INTERVIEW_PROMPT, leadAgentId, newSuggestionSince, filterTemplates, groupByCategory, FIRST_RUN_IDS, featuredShortlist, hireableChoices, preTick, suggestionReasons, hireSummary, installTemplateSkills, MAX_HIRE, toggleChoice, requirementBadges, requirementLabel, skillInstallNotice, starterRoutinesLabel, uniqueAgentName } from './templates.ts';
 
 const t = (id, name, role, category, description = '') => ({ id, name, role, category, description, instructions: '', color: '#000000', example_requests: [], requires: [], available: true, missing: [], starter_notes: null, skills: [], routines: [], suggested_tools: [], setup_depth: 'express', setup_text: null });
 const list = [
@@ -76,7 +76,7 @@ test('the skill is saved with its template as the source', async () => {
 
 test('a connectable requirement that is missing says Connect and keeps Add enabled', () => {
   const needs = { ...t('work-research', 'Research', 'Researcher', 'work'), requires: ['muapi'], missing: ['muapi'] };
-  assert.deepEqual(requirementBadges(needs), [{ requirement: 'muapi', text: 'Needs MuAPI · Connect', connectHref: '/marketplace/' }]);
+  assert.deepEqual(requirementBadges(needs), [{ requirement: 'muapi', text: 'Needs MuAPI · Connect', connectHref: '/settings/integrations/' }]);
   assert.equal(needs.available, true);
 });
 
@@ -183,4 +183,18 @@ test('the interview prompt asks for questions and a suggestion, and forbids crea
   assert.match(LEAD_INTERVIEW_PROMPT, /suggest_workers/);
   assert.match(LEAD_INTERVIEW_PROMPT, /Do not create anything/);
   assert.ok(LEAD_INTERVIEW_PROMPT.length < 500);
+});
+
+test('the first-run shortlist shows at most eight hireable workers and keeps ticked ones visible', () => {
+  const many = Array.from({ length: 12 }, (_, i) => t(`w${i}`, `W${i}`, 'r', 'work'));
+  many[0] = { ...many[0], available: false };
+  const short = featuredShortlist(many);
+  assert.equal(short.length, MAX_HIRE);
+  assert.ok(!short.some((x) => x.id === 'w0'));
+  assert.deepEqual(featuredShortlist(many, ['w11']).map((x) => x.id).includes('w11'), true);
+});
+
+test('the first-run shortlist leads with the curated workers', () => {
+  const all = [...Array.from({ length: 6 }, (_, i) => t(`x${i}`, `X${i}`, 'r', 'work')), ...FIRST_RUN_IDS.map((id) => t(id, id, 'r', 'work'))];
+  assert.deepEqual(featuredShortlist(all).map((x) => x.id), FIRST_RUN_IDS);
 });

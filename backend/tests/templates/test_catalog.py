@@ -1,5 +1,6 @@
 """The bundled template catalog and its read-only routes."""
 
+import dataclasses
 import re
 
 import httpx
@@ -32,7 +33,7 @@ def test_ids_are_unique_and_stable_looking():
     ids = [t.id for t in catalog.TEMPLATES]
     assert len(ids) == len(set(ids))
     assert all(re.fullmatch(r"[a-z]+(-[a-z]+)+", i) for i in ids)
-    assert len(ids) >= 12
+    assert len(ids) == 8
 
 
 def test_every_template_is_complete_and_bounded():
@@ -61,8 +62,9 @@ def test_every_category_has_a_template_and_most_roles_need_no_connection():
 
 
 def test_a_missing_connection_makes_a_template_unavailable():
-    assert not catalog.get("work-mailroom").available
-    assert catalog.get("everyday-helper").available
+    needs_email = dataclasses.replace(catalog.get("web-site-keeper"), requires=("email",))
+    assert not needs_email.available
+    assert catalog.get("web-site-keeper").available
 
 
 
@@ -96,34 +98,45 @@ def all_text(t):
     ] + [r.note for r in t.routines]
 
 
-def test_there_are_three_worker_templates_with_plain_names():
-    assert [t.id for t in workers()] == ["marketing-seo-writer", "sales-lead-researcher", "everyday-daily-briefer"]
-    assert [t.name for t in workers()] == ["SEO writer", "Lead researcher", "Daily briefer"]
+def test_there_are_eight_worker_templates_with_plain_names():
+    assert [t.id for t in workers()] == [
+        "everyday-daily-briefer", "sales-lead-researcher", "sales-outreach-drafter", "marketing-seo-writer",
+        "marketing-social-manager", "marketing-ad-manager", "support-customer-care", "web-site-keeper",
+    ]
+    assert [t.name for t in workers()] == [
+        "Daily briefer", "Lead researcher", "Outreach drafter", "SEO writer",
+        "Social media manager", "Ad manager", "Customer care", "Site keeper",
+    ]
     assert "marketing" in catalog.CATEGORIES
 
 
-def test_workers_need_muapi_and_only_suggest_its_tools():
+def test_only_workers_that_use_paid_data_need_muapi_and_only_suggest_its_tools():
+    paid = {"everyday-daily-briefer", "sales-lead-researcher", "sales-outreach-drafter", "marketing-seo-writer", "marketing-social-manager"}
     for t in workers():
-        assert t.requires == ("muapi",), t.id
-        assert t.suggested_tools == catalog.MUAPI_TOOLS, t.id
-    assert set(catalog.MUAPI_TOOLS) == {"muapi_data_api_search", "muapi_data_api_estimate", "muapi_data_api_call", "muapi_predict_result"}
+        if t.id in paid:
+            assert t.requires == ("muapi",), t.id
+            assert t.suggested_tools == catalog.MUAPI_TOOLS, t.id
+        else:
+            assert t.requires == () and t.suggested_tools == (), t.id
+            assert "MuAPI" not in t.full_instructions, t.id
+    assert set(catalog.MUAPI_TOOLS) == {"muapi_data_api_search", "muapi_data_api_inspect", "muapi_data_api_estimate", "muapi_data_api_call", "muapi_predict_result"}
 
 
 def test_run_rules_are_written_once_and_composed_into_each_worker():
     for t in workers():
         assert t.uses_run_rules, t.id
-        assert t.full_instructions.endswith(catalog.RUN_RULES.rstrip()), t.id
+        assert t.full_instructions.endswith(t.run_rules.rstrip()), t.id
         assert t.full_instructions.count("Shared run rules") == 1, t.id
         # Never copied into the role text or into a skill.
         assert "Profile first" not in t.instructions, t.id
         for skill in t.skills:
             assert "Profile first" not in skill.body and "[shared run rules]" not in skill.body, (t.id, skill.name)
-    ordinary = catalog.get("everyday-helper")
+    ordinary = dataclasses.replace(catalog.get("web-site-keeper"), uses_run_rules=False)
     assert ordinary.full_instructions == ordinary.instructions
 
 
 def test_worker_text_stays_within_the_word_budgets():
-    assert words(catalog.RUN_RULES) <= RULES_WORDS
+    assert words(catalog.RUN_RULES) <= RULES_WORDS and words(catalog.RUN_RULES_LOCAL) <= RULES_WORDS
     for t in workers():
         assert words(t.instructions) <= ROLE_WORDS, t.id
         assert len(re.findall(r"[.!?](?:\s|$)", t.description)) == 1, f"{t.id}: description must be one sentence"
@@ -152,7 +165,7 @@ def test_every_routine_is_paused_and_points_at_a_skill():
 
 def test_no_clock_times_in_routine_text():
     for t in workers():
-        texts = [catalog.RUN_RULES] + [s.body for s in t.skills] + [r.note for r in t.routines] + [r.window for r in t.routines]
+        texts = [t.run_rules] + [s.body for s in t.skills] + [r.note for r in t.routines] + [r.window for r in t.routines]
         for text in texts:
             assert not CLOCK_TIME.search(text), (t.id, CLOCK_TIME.search(text).group(0))
 
@@ -180,4 +193,4 @@ async def test_the_api_returns_the_composed_instructions_and_paused_routines():
     assert [r["id"] for r in body["routines"]] == ["seo-keyword-brief", "seo-draft-article"]
     assert all(r["enabled_after_install"] is False for r in body["routines"])
     assert listing["version"] == catalog.CATALOG_VERSION and "marketing" in listing["categories"]
-    assert [x["id"] for x in listing["templates"]] == ["marketing-seo-writer"]
+    assert [x["id"] for x in listing["templates"]] == ["marketing-ad-manager", "marketing-seo-writer", "marketing-social-manager"]

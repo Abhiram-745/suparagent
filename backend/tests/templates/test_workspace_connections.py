@@ -27,14 +27,14 @@ def local_enabled(monkeypatch):
     monkeypatch.setattr(settings, "LOCAL_ALLOWED_HOSTS", "localhost,127.0.0.1,[::1]")
 
 
-async def install(db, slug="muapi", manifest=None, token="mu_secret_token"):
-    db.add(CommunityMcpConnection(
-        id=str(uuid.uuid4()), owner_id=LOCAL_OWNER_ID, slug=slug, section="community",
-        manifest=manifest or MUAPI_MANIFEST, manifest_digest="d" * 64,
-    ))
+DATA_KEY = "integration:muapi:data-api"
+
+
+async def install(db, token="mu_secret_token"):
+    """Save the MuAPI data-API key, which is what makes MuAPI ready."""
     if token is not None:
         db.add(UserCredential(
-            user_id=LOCAL_OWNER_ID, provider="integration:community-mcp:" + slug,
+            user_id=LOCAL_OWNER_ID, provider=DATA_KEY,
             file_path="-", ciphertext=crypto.encrypt(json.dumps(token)),
         ))
     await db.flush()
@@ -44,17 +44,21 @@ async def test_nothing_is_ready_in_an_empty_workspace(db_session):
     assert await workspace_connections.ready_connections(db_session) == frozenset()
 
 
-async def test_muapi_is_ready_once_installed_with_a_token(db_session):
+async def test_muapi_is_ready_once_the_data_key_is_saved(db_session):
     await install(db_session)
     assert await workspace_connections.ready_connections(db_session) == frozenset({"muapi"})
 
 
-async def test_an_installed_listing_without_a_token_is_not_ready(db_session):
+async def test_no_saved_key_is_not_ready(db_session):
     await install(db_session, token=None)
     assert await workspace_connections.muapi_ready(db_session) is False
 
 
-async def test_a_token_without_the_installed_listing_is_not_ready(db_session):
+async def test_a_marketplace_listing_and_its_token_without_the_data_key_are_not_ready(db_session):
+    db_session.add(CommunityMcpConnection(
+        id=str(uuid.uuid4()), owner_id=LOCAL_OWNER_ID, slug="muapi", section="community",
+        manifest=MUAPI_MANIFEST, manifest_digest="d" * 64,
+    ))
     db_session.add(UserCredential(
         user_id=LOCAL_OWNER_ID, provider="integration:community-mcp:muapi",
         file_path="-", ciphertext=crypto.encrypt(json.dumps("mu_secret_token")),
@@ -63,15 +67,9 @@ async def test_a_token_without_the_installed_listing_is_not_ready(db_session):
     assert await workspace_connections.muapi_ready(db_session) is False
 
 
-async def test_a_listing_with_that_slug_but_another_endpoint_is_not_ready(db_session):
-    await install(db_session, manifest={**MUAPI_MANIFEST, "endpoint": "https://tools.example.com/mcp"})
-    assert await workspace_connections.muapi_ready(db_session) is False
-
-
-async def test_an_undecryptable_token_is_not_ready(db_session):
-    await install(db_session, token=None)
+async def test_an_undecryptable_key_is_not_ready(db_session):
     db_session.add(UserCredential(
-        user_id=LOCAL_OWNER_ID, provider="integration:community-mcp:muapi", file_path="-", ciphertext="not-a-valid-ciphertext",
+        user_id=LOCAL_OWNER_ID, provider=DATA_KEY, file_path="-", ciphertext="not-a-valid-ciphertext",
     ))
     await db_session.flush()
     assert await workspace_connections.muapi_ready(db_session) is False
@@ -86,9 +84,19 @@ async def test_the_muapi_computer_key_does_not_count(db_session):
 
 
 def needs_muapi(monkeypatch):
-    template = dataclasses.replace(catalog.get("everyday-helper"), id="work-needs-muapi", requires=("muapi",))
+    template = dataclasses.replace(catalog.get("web-site-keeper"), id="web-needs-muapi", requires=("muapi",))
+    add_template(monkeypatch, template)
+    return template
+
+
+def add_template(monkeypatch, template):
     monkeypatch.setattr(catalog, "TEMPLATES", catalog.TEMPLATES + (template,))
     monkeypatch.setattr(catalog, "_BY_ID", {**catalog._BY_ID, template.id: template})
+
+
+def needs_email(monkeypatch):
+    template = dataclasses.replace(catalog.get("web-site-keeper"), id="web-needs-email", requires=("email",))
+    add_template(monkeypatch, template)
     return template
 
 
@@ -99,20 +107,21 @@ def test_a_role_that_needs_only_muapi_can_be_added_before_it_is_connected(monkey
     assert template.missing(frozenset({"muapi"})) == ()
 
 
-def test_a_role_that_needs_an_unconnectable_app_stays_unavailable():
-    mailroom = catalog.get("work-mailroom")
+def test_a_role_that_needs_an_unconnectable_app_stays_unavailable(monkeypatch):
+    mailroom = needs_email(monkeypatch)
     assert not mailroom.is_available(frozenset())
     assert mailroom.missing(frozenset()) == ("email",)
     assert not mailroom.is_available(frozenset({"muapi"}))
-    assert catalog.get("everyday-helper").missing(frozenset()) == ()
+    assert catalog.get("web-site-keeper").missing(frozenset()) == ()
 
 
 def test_ready_roles_sort_before_roles_that_still_need_a_connection(monkeypatch):
     template = needs_muapi(monkeypatch)
+    mailroom = needs_email(monkeypatch)
     ids = [t.id for t in catalog.search(None, None, frozenset())]
-    assert ids.index("everyday-helper") < ids.index(template.id) < ids.index("work-mailroom")
+    assert ids.index("web-site-keeper") < ids.index(template.id) < ids.index(mailroom.id)
     ids_ready = [t.id for t in catalog.search(None, None, frozenset({"muapi"}))]
-    assert ids_ready.index(template.id) < ids_ready.index("work-mailroom")
+    assert ids_ready.index(template.id) < ids_ready.index(mailroom.id)
 
 
 def client(db):
@@ -128,14 +137,15 @@ def client(db):
 
 async def test_the_list_route_reports_missing_connections_per_workspace(db_session, monkeypatch):
     template = needs_muapi(monkeypatch)
+    mailroom = needs_email(monkeypatch)
     async with client(db_session) as http:
         body = (await http.get("/api/v1/templates")).json()
         by_id = {t["id"]: t for t in body["templates"]}
         assert by_id[template.id]["available"] is True
         assert by_id[template.id]["missing"] == ["muapi"]
-        assert by_id["work-mailroom"]["available"] is False
-        assert by_id["work-mailroom"]["missing"] == ["email"]
-        assert by_id["everyday-helper"]["missing"] == []
+        assert by_id[mailroom.id]["available"] is False
+        assert by_id[mailroom.id]["missing"] == ["email"]
+        assert by_id["web-site-keeper"]["missing"] == []
 
         await install(db_session)
         body = (await http.get("/api/v1/templates")).json()
@@ -147,5 +157,5 @@ async def test_the_single_template_route_reports_missing_connections(db_session,
     async with client(db_session) as http:
         found = (await http.get(f"/api/v1/templates/{template.id}")).json()
         assert found["available"] is True and found["missing"] == ["muapi"]
-        assert (await http.get("/api/v1/templates/everyday-helper")).json()["missing"] == []
+        assert (await http.get("/api/v1/templates/web-site-keeper")).json()["missing"] == []
         assert (await http.get("/api/v1/templates/nope-missing")).status_code == 404

@@ -39,12 +39,10 @@ export type TemplateCatalog = { version: number; categories: string[]; templates
 
 export const CATEGORY_LABELS: Record<string, string> = {
   everyday: "Everyday",
-  work: "Work",
-  writing: "Writing",
-  design: "Design",
   sales: "Sales",
   marketing: "Marketing",
-  personal: "Personal",
+  support: "Support",
+  web: "Web",
 };
 
 export function categoryLabel(category: string): string {
@@ -82,7 +80,7 @@ export function requirementLabel(requirement: string): string {
 }
 
 // Where a missing connection is set up inside the app. A requirement with no entry cannot be connected yet.
-const CONNECT_PATHS: Record<string, string> = { muapi: "/marketplace/" };
+const CONNECT_PATHS: Record<string, string> = { muapi: "/settings/integrations/" };
 
 export type RequirementBadge = { requirement: string; text: string; connectHref: string | null };
 
@@ -160,6 +158,29 @@ export function groupByCategory(templates: AgentTemplate[], categories: string[]
   return [...new Set(order)]
     .map((category) => ({ category, templates: templates.filter((t) => t.category === category) }))
     .filter((group) => group.templates.length > 0);
+}
+
+// The workers first-run leads with: the whole bundled catalog, in the order a small business usually wants them.
+export const FIRST_RUN_IDS = [
+  "everyday-daily-briefer",
+  "sales-lead-researcher",
+  "sales-outreach-drafter",
+  "marketing-seo-writer",
+  "marketing-social-manager",
+  "marketing-ad-manager",
+  "support-customer-care",
+  "web-site-keeper",
+];
+
+// The short list first-run shows: the curated workers that can be added, topped up in catalog order to the hire limit.
+// A worker already ticked (for example from the team lead's suggestions) stays visible even if it is past the cut.
+export function featuredShortlist(templates: AgentTemplate[], chosen: string[] = []): AgentTemplate[] {
+  const addable = templates.filter((t) => t.available);
+  const curated = FIRST_RUN_IDS.filter((id) => addable.some((t) => t.id === id));
+  const filler = addable.map((t) => t.id).filter((id) => !curated.includes(id));
+  const picked = new Set([...curated, ...filler].slice(0, MAX_HIRE));
+  chosen.forEach((id) => picked.add(id));
+  return templates.filter((t) => picked.has(t.id));
 }
 
 // Tick or untick one worker. Ticking past the limit changes nothing.

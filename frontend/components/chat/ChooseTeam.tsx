@@ -11,6 +11,7 @@ import { EmptyPanel, ErrorState, LoadingState } from "./PanelState";
 import {
   addedTemplateIds,
   categoryLabel,
+  featuredShortlist,
   groupByCategory,
   hireableChoices,
   hireSummary,
@@ -38,6 +39,7 @@ export function ChooseTeam({
   provider,
   model,
   skipLabel = "Skip",
+  shortlist = false,
   onSkip,
   onHired,
   onUndone,
@@ -45,6 +47,8 @@ export function ChooseTeam({
   provider?: string;
   model?: string | null;
   skipLabel?: string;
+  /** First-run: show only a short list of workers, without category headings. The rest stay in Templates. */
+  shortlist?: boolean;
   onSkip?: () => void;
   onHired?: (receipt: HireReceipt) => void;
   onUndone?: () => void;
@@ -88,7 +92,11 @@ export function ChooseTeam({
     return () => { cancelled = true; };
   }, [reload]);
 
-  const groups = useMemo(() => (catalog ? groupByCategory(catalog.templates, catalog.categories) : []), [catalog]);
+  const groups = useMemo(() => {
+    if (!catalog) return [];
+    if (shortlist) return [{ category: "", templates: featuredShortlist(catalog.templates, chosen) }];
+    return groupByCategory(catalog.templates, catalog.categories);
+  }, [catalog, shortlist, chosen]);
   const ticked = useMemo(
     () => hireableChoices(chosen, catalog?.templates ?? []).filter((id) => !added.includes(id) || copies.includes(id)),
     [chosen, catalog, added, copies],
@@ -239,7 +247,7 @@ export function ChooseTeam({
   return (
     <div className="space-y-4">
       {undone && <p role="status" className="text-xs text-muted">Those workers were removed.</p>}
-      <p className="text-sm text-muted">Tick any workers you want, or none. You can add more later from Templates.</p>
+      <p className="text-sm text-muted">Tick any workers you want, or none. You can add more later from Templates.{shortlist ? " Only a few are shown here." : ""}</p>
       {leadSuggestion && (
         <section aria-label="Your team lead's suggestions" className="space-y-2 rounded-md border border-accent p-3">
           <p className="text-xs font-medium">Your team lead suggested {leadSuggestion.suggestions.length} {leadSuggestion.suggestions.length === 1 ? "worker" : "workers"}:</p>
@@ -323,8 +331,8 @@ export function ChooseTeam({
         </section>
       )}
       {groups.map((group) => (
-        <section key={group.category} aria-label={categoryLabel(group.category)} className="space-y-2">
-          <h4 className="text-xs font-medium uppercase tracking-wide text-muted">{categoryLabel(group.category)}</h4>
+        <section key={group.category || "shortlist"} aria-label={group.category ? categoryLabel(group.category) : "Suggested workers"} className="space-y-2">
+          {group.category && <h4 className="text-xs font-medium uppercase tracking-wide text-muted">{categoryLabel(group.category)}</h4>}
           <ul className="grid min-w-0 gap-3 sm:grid-cols-2">
             {group.templates.map((template) => {
               const isTicked = ticked.includes(template.id);
