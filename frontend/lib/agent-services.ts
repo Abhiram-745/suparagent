@@ -104,3 +104,40 @@ export function toggleAgent(current: number[], agentId: number, on: boolean): nu
   const rest = current.filter((id) => id !== agentId);
   return (on ? [...rest, agentId] : rest).sort((a, b) => a - b);
 }
+
+// A mailbox or number the service reports for the signed-in account (GET .../providers/{id}/lookup).
+export type ServiceCandidate = { address: string; provider_resource_id: string; label: string; added: boolean };
+
+export type SetupStep = "sign_in" | "needs_secret" | "test" | "turn_on" | "ready";
+
+// What the owner has to do next to make a provider connection usable, from the connection's own state.
+export function setupStep(connection: {
+  auth_mode: "none" | "bearer" | "header" | "oauth"; oauth_signed_in: boolean; credential_configured: boolean;
+  state: "not_tested" | "connected" | "unreachable" | "needs_sign_in" | "disabled"; enabled: boolean;
+}): SetupStep {
+  if (connection.auth_mode === "oauth" && !connection.oauth_signed_in) return "sign_in";
+  if ((connection.auth_mode === "bearer" || connection.auth_mode === "header") && !connection.credential_configured) return "needs_secret";
+  if (connection.state === "not_tested" || connection.state === "unreachable" || connection.state === "needs_sign_in") return "test";
+  if (!connection.enabled) return "turn_on";
+  return "ready";
+}
+
+export const SETUP_TEXT: Record<SetupStep, string> = {
+  sign_in: "Step 1 of 3: sign in to the service in your browser.",
+  needs_secret: "This connection needs its secret. Add it under “Custom MCP servers” below, then come back.",
+  test: "Step 2 of 3: test the connection.",
+  turn_on: "Step 3 of 3: turn it on. Until then no agent can use it.",
+  ready: "On. Agents only get the tools you grant them, and only for the addresses you assign.",
+};
+
+// One page of the activity list is this many rows; a full page means there may be more.
+export const AUDIT_PAGE = 20;
+export function hasMoreAudit(pageSize: number): boolean {
+  return pageSize >= AUDIT_PAGE;
+}
+
+// Connections that could be used as a provider but are not one yet.
+export function notProviders<T extends { id: string; can_manage: boolean }>(connections: T[], providers: { connection_id: string }[]): T[] {
+  const used = new Set(providers.map((item) => item.connection_id));
+  return connections.filter((item) => item.can_manage && !used.has(item.id));
+}

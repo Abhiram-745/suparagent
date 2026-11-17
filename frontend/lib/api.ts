@@ -3,7 +3,7 @@ import type { TemplateCatalog, TemplateSkill } from "./templates";
 import type { ComposioAccount, ComposioApp, ComposioLink } from "./connected-apps";
 import type { MarketplaceCatalog, MarketplaceConnection, MarketplaceSection, MarketplaceTool } from "./marketplace";
 import type { CustomMcpConnection, CustomMcpDraft, CustomMcpTool } from "./custom-mcp";
-import type { ServiceAudit, ServiceKind, ServicePreset, ServiceProvider, ServiceResource } from "./agent-services";
+import type { ServiceAudit, ServiceCandidate, ServiceKind, ServicePreset, ServiceProvider, ServiceResource } from "./agent-services";
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1";
 
@@ -1257,7 +1257,10 @@ export const api = {
     request<ServiceResource>(`/integrations/agent-services/resources/${encodeURIComponent(id)}/agents`, {
       method: "PUT", body: JSON.stringify({ agent_ids: agentIds }),
     }),
-  listServiceAudit: (limit = 20) => request<ServiceAudit[]>(`/integrations/agent-services/audit?limit=${limit}`),
+  listServiceAudit: (limit = 20, offset = 0, agentId?: number) =>
+    request<ServiceAudit[]>(`/integrations/agent-services/audit?limit=${limit}&offset=${offset}${agentId !== undefined ? `&agent_id=${agentId}` : ""}`),
+  lookUpServiceProvider: (connectionId: string) =>
+    request<ServiceCandidate[]>(`/integrations/agent-services/providers/${encodeURIComponent(connectionId)}/lookup`),
   getDesktopSettings: () => request<DesktopSettings>("/settings"),
   saveDesktopSetting: (key: string, value: unknown, expectedVersion: number) =>
     request<ApplicationSetting>(`/settings/${encodeURIComponent(key)}`, {

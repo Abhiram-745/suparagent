@@ -130,3 +130,41 @@ def narrow_result(result: dict, assigned: list[str], *, provider: str = "agentma
         rows = [row for row in data["inboxes"] if isinstance(row, dict) and str(row.get("inboxId", "")).lower() in allowed]
         kept = {**data, "inboxes": rows, "count": len(rows)}
     return {"content": [{"type": "text", "text": json.dumps(kept)}], "structuredContent": kept, "isError": False}
+
+
+# What a read-only look-up asks the service for, and where the answer is. Only providers whose tools were seen live.
+_LOOKUP = {"agentmail": ("list_inboxes", "inboxes"), "agentphone": ("list_numbers", "data")}
+
+
+def lookup_tool(provider: str) -> str | None:
+    found = _LOOKUP.get(provider)
+    return found[0] if found else None
+
+
+def _text(value: object, limit: int) -> str:
+    """One line of plain text from a service's answer: control characters dropped, length capped."""
+    return " ".join("".join(ch for ch in str(value) if ch.isprintable()).split())[:limit]
+
+
+def candidates(provider: str, result: dict) -> list[dict] | None:
+    """The mailboxes or numbers the service reports, as {address, provider_resource_id, label}; None when the
+    answer cannot be read as that list. The service's text is untrusted: it is cut to plain short strings."""
+    found = _LOOKUP.get(provider)
+    if found is None or result.get("isError") or result.get("error"):
+        return None
+    data = _readable(result, found[1])
+    if data is None:
+        return None
+    rows = []
+    for row in data[found[1]]:
+        if not isinstance(row, dict):
+            continue
+        if provider == "agentmail":
+            identifier = row.get("inboxId")
+            address, label = row.get("email") or identifier, row.get("displayName") or ""
+        else:
+            identifier, address, label = row.get("id"), row.get("phoneNumber"), ""
+        if isinstance(identifier, str) and isinstance(address, str) and address:
+            rows.append({"address": _text(address, 200), "provider_resource_id": _text(identifier, 200),
+                         "label": _text(label, 100)})
+    return rows

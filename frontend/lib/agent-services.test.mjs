@@ -52,3 +52,34 @@ test('the phone number id and blocked tool errors read clearly', () => {
   assert.match(describeServiceError({ code: 'provider_resource_id_required' }), /number id/);
   assert.match(describeServiceError({ code: 'tool_not_allowed_for_agents' }), /never given to agents/);
 });
+
+import { hasMoreAudit, notProviders, setupStep } from './agent-services.ts';
+
+const base = { auth_mode: 'oauth', oauth_signed_in: true, credential_configured: false, state: 'connected', enabled: true };
+
+test('the next setup step follows the connection state', () => {
+  assert.equal(setupStep({ ...base, oauth_signed_in: false, state: 'not_tested', enabled: false }), 'sign_in');
+  assert.equal(setupStep({ ...base, state: 'not_tested', enabled: false }), 'test');
+  assert.equal(setupStep({ ...base, state: 'unreachable', enabled: false }), 'test');
+  assert.equal(setupStep({ ...base, state: 'needs_sign_in', enabled: false }), 'test');
+  assert.equal(setupStep({ ...base, state: 'connected', enabled: false }), 'turn_on');
+  assert.equal(setupStep(base), 'ready');
+});
+
+test('a key or header connection waits for its secret before anything else', () => {
+  assert.equal(setupStep({ ...base, auth_mode: 'bearer', credential_configured: false, state: 'not_tested', enabled: false }), 'needs_secret');
+  assert.equal(setupStep({ ...base, auth_mode: 'header', credential_configured: true, state: 'not_tested', enabled: false }), 'test');
+  assert.equal(setupStep({ ...base, auth_mode: 'none', state: 'not_tested', enabled: false }), 'test');
+});
+
+test('a full page of activity means there may be more, a short one means the end', () => {
+  assert.equal(hasMoreAudit(20), true);
+  assert.equal(hasMoreAudit(19), false);
+  assert.equal(hasMoreAudit(0), false);
+});
+
+test('only connections you can manage and that are not providers yet can be added as one', () => {
+  const connections = [{ id: 'a', can_manage: true }, { id: 'b', can_manage: true }, { id: 'c', can_manage: false }];
+  assert.deepEqual(notProviders(connections, [{ connection_id: 'a' }]).map((item) => item.id), ['b']);
+  assert.deepEqual(notProviders(connections, []).map((item) => item.id), ['a', 'b']);
+});

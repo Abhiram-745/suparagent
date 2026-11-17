@@ -23,12 +23,14 @@ from app.db.models import (
     CustomMcpToolGrant,
 )
 from app.db.session import get_db
-from app.db.transactions import begin_write
+from app import community_mcp
+from app.db.transactions import begin_write, release_snapshot
 from app.routers import custom_mcp
 from app.routers.custom_mcp import _bind_actor, _clean_name, _connection, _fail, _no_store, _owned_agent
 from app.routers.integrations import _owner
 from app.schemas.custom_mcp import CustomMcpCreate
 from app.schemas.agent_service import (
+    AgentServiceCandidateOut,
     AgentServiceAssignRequest,
     AgentServiceAuditOut,
     AgentServicePresetOut,
@@ -38,6 +40,7 @@ from app.schemas.agent_service import (
     AgentServiceResourceCreate,
     AgentServiceResourceOut,
 )
+from app.services import agent_service_policy
 from app.services.agent_service_store import remove_provider_data
 from app.services.local_access_policy import require_local_access
 
@@ -212,6 +215,36 @@ async def clear_provider(connection_id: str, response: Response, db: AsyncSessio
     return Response(status_code=204, headers={"Cache-Control": "no-store"})
 
 
+@router.get("/providers/{connection_id}/lookup", response_model=list[AgentServiceCandidateOut])
+async def look_up(connection_id: str, response: Response, db: AsyncSession = Depends(get_db)):
+    """Read-only: ask the service which mailboxes or numbers the signed-in account has, so the owner can pick one
+    instead of typing its id. Uses the owner's own sign-in; no agent is involved and nothing is changed."""
+    _no_store(response)
+    provider = await _provider(db, connection_id)
+    tool = agent_service_policy.lookup_tool(provider.provider)
+    if tool is None:
+        raise _fail(422, "lookup_not_supported")
+    row = await _connection(db, connection_id)
+    endpoint = row.endpoint
+    token, header = await custom_mcp._auth_for(db, row)
+    have = {address for address in (await db.scalars(select(AgentServiceResource.address).where(
+        AgentServiceResource.connection_id == connection_id))).all()}
+    await release_snapshot(db)
+    session = community_mcp.RemoteMcpSession(endpoint, token, header=header)
+    try:
+        result = await session.call_tool(tool, {"limit": 100})
+    except community_mcp.McpError as exc:
+        raise custom_mcp._http(exc) from None
+    except Exception:
+        raise _fail(502, "remote_unavailable") from None
+    finally:
+        await session.close()
+    found = agent_service_policy.candidates(provider.provider, result)
+    if found is None:
+        raise _fail(502, "lookup_unreadable")
+    return [AgentServiceCandidateOut(**item, added=item["address"].lower() in {a.lower() for a in have}) for item in found]
+
+
 # ---------------------------------------------------------------- resources
 
 @router.get("/resources", response_model=list[AgentServiceResourceOut])
@@ -315,7 +348,7 @@ async def resources_of_agent(agent_id: int, response: Response, db: AsyncSession
 @router.get("/audit", response_model=list[AgentServiceAuditOut])
 async def list_audit(
     response: Response, agent_id: int | None = None, limit: int = Query(default=50, ge=1, le=200),
-    db: AsyncSession = Depends(get_db),
+    offset: int = Query(default=0, ge=0, le=100_000), db: AsyncSession = Depends(get_db),
 ):
     """Newest first: which agent used which address or number through which provider, and how it ended.
     Holds no message text or arguments. Calls through a private connection are visible only to its creator
@@ -336,4 +369,4 @@ async def list_audit(
         connection_name=row.connection_name, provider=row.provider, tool_name=row.tool_name,
         resources=[str(r) for r in (row.resources or [])], outcome=row.outcome, approved_by=row.approved_by,
         created_at=row.created_at,
-    ) for row in shown[:limit]]
+    ) for row in shown[offset:offset + limit]]

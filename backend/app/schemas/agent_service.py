@@ -74,3 +74,11 @@ class AgentServiceProviderFromPreset(BaseModel):
     # Defaults to the preset's label.
     name: str | None = Field(default=None, min_length=1, max_length=100)
     resource_limit: int = Field(default=3, ge=1, le=20)
+
+
+class AgentServiceCandidateOut(BaseModel):
+    address: str
+    provider_resource_id: str
+    label: str
+    # Already recorded under this provider.
+    added: bool
