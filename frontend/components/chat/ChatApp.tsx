@@ -294,6 +294,8 @@ export function ChatApp() {
   useEffect(() => {
     const firstTask = pendingFirstTask;
     if (threadId !== null || firstTask === null) return;
+    // Hands the one-shot suggestion to the composer once, then clears it.
+    /* eslint-disable react-hooks/set-state-in-effect */
     setPendingFirstTask(null);
     setFirstTaskSuggestion(null);
     setDraft(firstTask);

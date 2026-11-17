@@ -61,6 +61,8 @@ function TeamSetupProposal({ item }: { item: Extract<TranscriptItem, { kind: "te
 
   useEffect(() => {
     const current = item.plan ?? { operations: [] };
+    // Resets the editable copy when a newer version of the plan arrives.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPlan(current); setSavedPlan(current); setVersion(item.version ?? 0);
   }, [item.version, item.plan]);
   const changeOperation = (index: number, update: (operation: TeamSetupOperation) => TeamSetupOperation) => {
