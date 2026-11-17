@@ -29,7 +29,7 @@ export function WorkerGrants({ workers, suggestedTools }: { workers: HiredWorker
     Promise.all([api.getMuapiIntegration(), api.getSpend()]).then(async ([integration, overview]) => {
       const grants = await Promise.all(rows.map(async (row) => {
         try { return [row.worker.agent_id, (await api.getMuapiAgentGrants(row.worker.agent_id)).tool_names] as const; }
-        catch { return [row.worker.agent_id, []] as const; }
+        catch { return [row.worker.agent_id, [] as string[]] as const; }
       }));
       if (!live) return;
       setConfigured(integration.configured);
