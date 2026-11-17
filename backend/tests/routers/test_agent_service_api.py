@@ -252,7 +252,8 @@ async def test_a_preset_creates_a_disabled_private_oauth_connection_marked_as_a_
     assert conn["credential_configured"] is False
     address = "helper@agentmail.to" if kind == "email" else "+14155550100"
     made = await admin.post(f"{API}/resources", json={
-        "connection_id": body["connection_id"], "kind": kind, "address": address, "label": "First"})
+        "connection_id": body["connection_id"], "kind": kind, "address": address, "label": "First",
+        "provider_resource_id": "num_1" if kind == "phone" else None})
     assert made.status_code == 201 and made.json()["agent_ids"] == []
 
 
@@ -267,3 +268,34 @@ async def test_an_unknown_preset_is_refused(admin):
     refused = await admin.post(f"{API}/providers", json={"preset": "telnyx"})
     assert refused.status_code == 422
     assert (await admin.get(f"{PATH}/connections")).json() == []
+
+
+async def test_an_agentphone_number_needs_its_provider_id_and_an_agentmail_inbox_does_not(admin):
+    phone = await provider(admin, name="Phone", kind="agentphone")
+    refused = await resource(admin, phone, address="+14155550100", kind="phone")
+    assert refused.status_code == 422 and code_of(refused) == "provider_resource_id_required"
+    assert (await resource(admin, phone, address="+14155550100", kind="phone", provider_resource_id="  ")).status_code == 422
+    assert (await resource(admin, phone, address="+14155550100", kind="phone", provider_resource_id="num_1")).status_code == 201
+    mail = await provider(admin, name="Mail2")
+    assert (await resource(admin, mail)).status_code == 201
+
+
+async def test_a_tool_agents_never_get_cannot_be_granted_for_a_phone_provider(admin, factory, owner, server):
+    from tests.routers.test_custom_mcp_api import ready, tool as make_tool
+    server.tools = [make_tool("buy_number"), make_tool("list_numbers"), make_tool("set_webhook")]
+    conn = await ready(admin, name="Phone")
+    put = await admin.put(f"{API}/providers/{conn['id']}", json={"provider": "agentphone", "resource_limit": 3})
+    assert put.status_code == 200
+    agent = await named_agent(factory, owner, "Caller")
+    digest = {t["name"]: t["schema_digest"] for t in server.tools}
+    grants = f"{PATH}/connections/{conn['id']}/agents/{agent}/grants"
+    for name in ("buy_number", "set_webhook"):
+        refused = await admin.put(grants, json={"revision": conn["revision"], "tools": [{"name": name, "schema_digest": digest[name]}]})
+        assert refused.status_code == 422 and code_of(refused) == "tool_not_allowed_for_agents", name
+    allowed = await admin.put(grants, json={"revision": conn["revision"], "tools": [{"name": "list_numbers", "schema_digest": digest["list_numbers"]}]})
+    assert allowed.status_code == 200, allowed.text
+    # Not a phone provider: the same tool name is an ordinary grant.
+    other = await ready(admin, name="Notes")
+    ok = await admin.put(f"{PATH}/connections/{other['id']}/agents/{agent}/grants", json={
+        "revision": other["revision"], "tools": [{"name": "buy_number", "schema_digest": digest["buy_number"]}]})
+    assert ok.status_code == 200, ok.text

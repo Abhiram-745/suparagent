@@ -234,6 +234,10 @@ async def create_resource(payload: AgentServiceResourceCreate, response: Respons
         raise _fail(422, "kind_not_supported_by_provider")
     address = _clean_address(payload.kind, payload.address)
     label = _clean_name(payload.label)
+    identifier = (payload.provider_resource_id or "").strip() or None
+    if provider.provider == "agentphone" and identifier is None:
+        # AgentPhone names a number by id in most tools; without the id none of those calls could match it.
+        raise _fail(422, "provider_resource_id_required")
     await begin_write(db)
     # Re-read the cap inside the write so two requests cannot both pass it.
     current = await db.get(AgentServiceProvider, payload.connection_id)
@@ -252,7 +256,7 @@ async def create_resource(payload: AgentServiceResourceCreate, response: Respons
         raise _fail(409, "resource_exists")
     row = AgentServiceResource(
         id=str(uuid.uuid4()), owner_id=_owner_id(), connection_id=payload.connection_id, kind=payload.kind,
-        address=address, label=label, provider_resource_id=(payload.provider_resource_id or "").strip() or None,
+        address=address, label=label, provider_resource_id=identifier,
     )
     db.add(row)
     await db.commit()

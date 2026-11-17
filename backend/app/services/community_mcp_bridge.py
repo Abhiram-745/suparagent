@@ -32,7 +32,7 @@ from app.db.models import (
 )
 from app.services import user_credential_service
 from app.services import agent_service_policy
-from app.services.agent_service_store import provider_resources, unassigned_providers
+from app.services.agent_service_store import provider_identifiers, provider_resources, unassigned_providers
 
 logger = get_logger(__name__)
 
@@ -300,10 +300,14 @@ class CommunityMcpBridge:
         )).all()
         snapshot = []
         # A mailbox/number provider is mounted only for an agent that has one of its resources assigned.
-        services = await provider_resources(db, agent_id, sorted({connection.id for connection, _ in rows}))
+        connection_ids = sorted({connection.id for connection, _ in rows})
+        services = await provider_resources(db, agent_id, connection_ids)
+        identifiers = await provider_identifiers(db, agent_id, connection_ids) if services else {}
         for connection, grant in rows:
             if connection.id in services and not services[connection.id][1]:
                 continue
+            if connection.id in services and agent_service_policy.blocked(services[connection.id][0], grant.tool_name):
+                continue  # a tool agents never get for this provider (it spends money or changes inbound settings)
             if connection.tested_revision != connection.revision or connection.tools_snapshot is None:
                 continue
             if connection.auth_mode not in ("none", "bearer", "header", "oauth"):
@@ -335,7 +339,8 @@ class CommunityMcpBridge:
                              "auth_mode": connection.auth_mode, "auth_header_name": connection.auth_header_name},
                 "name": connection.name[:120],
                 # The agent-owned addresses this call would act as; shown on the approval card.
-                **({"service": {"provider": services[connection.id][0], "resources": services[connection.id][1]}}
+                **({"service": {"provider": services[connection.id][0], "resources": services[connection.id][1],
+                                       "identifiers": identifiers.get(connection.id, [])}}
                    if connection.id in services else {}),
                 "grant": {
                     "tool_name": grant.tool_name, "schema_digest": grant.schema_digest,
@@ -368,7 +373,8 @@ class CommunityMcpBridge:
             return None
         return agent_service_policy.refusal(
             service.get("provider", ""), item["input_schema"], args if isinstance(args, dict) else {},
-            list(service.get("resources", [])))
+            list(service.get("resources", [])), tool_name=item["remote_name"],
+            identifiers=list(service.get("identifiers", [])))
 
     @property
     def aliases_allowed(self) -> list[str]:
@@ -770,15 +776,19 @@ class CommunityMcpBridge:
             if manifest is None:
                 return {"error": "This call no longer has an active agent grant.", "code": "revoked"}
             custom = item.get("kind") == "custom"
-            assigned = None
+            assigned = identifiers = None
             if custom and item.get("service"):
                 async with self.runtime.session() as db:
                     found = await provider_resources(db, self.run.agent_id, [item["connection_id"]])
+                    ids = await provider_identifiers(db, self.run.agent_id, [item["connection_id"]])
                 assigned = list(found.get(item["connection_id"], ("", []))[1])
-                reason = agent_service_policy.refusal(item["service"].get("provider", ""), item["input_schema"],
-                                                      arguments, assigned)
+                identifiers = list(ids.get(item["connection_id"], []))
+                reason = agent_service_policy.refusal(
+                    item["service"].get("provider", ""), item["input_schema"], arguments, assigned,
+                    tool_name=item["remote_name"], identifiers=identifiers)
                 if reason is not None:
-                    return {"error": "This call names a mailbox or number that is not assigned to this agent.",
+                    return {"error": ("This tool is not available to agents for this service." if reason == agent_service_policy.NOT_ALLOWED
+                                      else "This call does not name a mailbox or number assigned to this agent."),
                             "code": reason}
             provider = (CUSTOM_CREDENTIAL_PREFIX if custom else "integration:community-mcp:") + str(item["manifest"]["slug"])
             token = None
@@ -831,7 +841,8 @@ class CommunityMcpBridge:
                             "code": "not_approved"}
                 if assigned is not None and agent_service_policy.narrows_result(
                         item["service"].get("provider", ""), item["remote_name"]):
-                    result = agent_service_policy.narrow_result(result, assigned)
+                    result = agent_service_policy.narrow_result(
+                        result, assigned, provider=item["service"].get("provider", ""), identifiers=identifiers or [])
                 return _redact(result, token)
             finally:
                 await session.close()

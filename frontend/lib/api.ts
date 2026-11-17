@@ -1249,7 +1249,7 @@ export const api = {
   clearServiceProvider: (connectionId: string) =>
     request<void>(`/integrations/agent-services/providers/${encodeURIComponent(connectionId)}`, { method: "DELETE" }),
   listServiceResources: () => request<ServiceResource[]>("/integrations/agent-services/resources"),
-  addServiceResource: (body: { connection_id: string; kind: ServiceKind; address: string; label: string }) =>
+  addServiceResource: (body: { connection_id: string; kind: ServiceKind; address: string; label: string; provider_resource_id?: string }) =>
     request<ServiceResource>("/integrations/agent-services/resources", { method: "POST", body: JSON.stringify(body) }),
   deleteServiceResource: (id: string) =>
     request<void>(`/integrations/agent-services/resources/${encodeURIComponent(id)}`, { method: "DELETE" }),

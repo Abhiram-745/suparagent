@@ -15,7 +15,7 @@ import { Checkbox } from "@/components/ui/Checkbox";
 import { Field, Input, Select } from "@/components/ui/Input";
 import { SkeletonList } from "@/components/ui/Skeleton";
 
-type AddForm = { kind: ServiceKind; address: string; label: string };
+type AddForm = { kind: ServiceKind; address: string; label: string; identifier: string };
 
 export function AgentServicesSection({ agents }: { agents: MarketplaceAgent[] }) {
   const [presets, setPresets] = useState<ServicePreset[]>([]);
@@ -60,7 +60,7 @@ export function AgentServicesSection({ agents }: { agents: MarketplaceAgent[] })
 
   const off = busy !== null;
   const formFor = (provider: ServiceProvider): AddForm =>
-    forms[provider.connection_id] ?? { kind: kindOf(provider.provider) ?? "email", address: "", label: "" };
+    forms[provider.connection_id] ?? { kind: kindOf(provider.provider) ?? "email", address: "", label: "", identifier: "" };
 
   const card = (provider: ServiceProvider) => {
     const connection = connections.find((item) => item.id === provider.connection_id);
@@ -113,11 +113,15 @@ export function AgentServicesSection({ agents }: { agents: MarketplaceAgent[] })
           <Field label="Label" hint="A name for you, such as “Support inbox”.">
             {(props) => <Input {...props} value={form.label} maxLength={100} disabled={off || full} onChange={(event) => setForm({ label: event.target.value })} />}
           </Field>
+          {provider.provider === "agentphone" && <Field label="AgentPhone number id" hint="The id AgentPhone gives this number (shown as “id” when the number is listed). Calls and texts name the sending number by this id, so it is required.">
+            {(props) => <Input {...props} value={form.identifier} maxLength={200} disabled={off || full} onChange={(event) => setForm({ identifier: event.target.value })} />}
+          </Field>}
         </div>
         {full && <p className="text-xs text-muted">This provider is at its limit of {provider.resource_limit}. Raise the limit below to add more.</p>}
         {form.address.trim() !== "" && cleaned === null && <p className="text-xs text-danger">That does not look like a valid {kind === "email" ? "email address" : "phone number"}.</p>}
-        <Button variant="primary" disabled={off || full || cleaned === null || !form.label.trim()} onClick={() => void run(`add:${provider.connection_id}`, async () => {
-          await api.addServiceResource({ connection_id: provider.connection_id, kind, address: cleaned ?? "", label: form.label.trim() });
+        <Button variant="primary" disabled={off || full || cleaned === null || !form.label.trim() || (provider.provider === "agentphone" && !form.identifier.trim())} onClick={() => void run(`add:${provider.connection_id}`, async () => {
+          await api.addServiceResource({ connection_id: provider.connection_id, kind, address: cleaned ?? "", label: form.label.trim(),
+            ...(form.identifier.trim() ? { provider_resource_id: form.identifier.trim() } : {}) });
           setForms((old) => { const copy = { ...old }; delete copy[provider.connection_id]; return copy; }); await reload();
           setNotice("Added. No agent has it yet: tick the agents above, then grant them tools under “Custom MCP servers”.");
         })}>{busy === `add:${provider.connection_id}` ? "Adding…" : "Add address"}</Button>

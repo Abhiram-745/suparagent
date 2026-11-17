@@ -83,6 +83,8 @@ const ERROR_TEXT: Record<string, string> = {
   provider_kind_mismatch: "This provider already holds the other kind of address.",
   resource_not_found: "That address was removed in another window. Reload the list.",
   agent_not_found: "One of the agents no longer exists. Reload the list.",
+  provider_resource_id_required: "Enter the AgentPhone number id. Calls and texts name the sending number by it.",
+  tool_not_allowed_for_agents: "That tool is never given to agents for this service (it spends money, deletes data or changes inbound settings). Uncheck it and save again.",
 };
 
 export function describeServiceError(error: unknown): string {

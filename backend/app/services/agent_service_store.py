@@ -43,3 +43,21 @@ async def unassigned_providers(db: AsyncSession, agent_id: int, connection_ids: 
     every call, so removing an assignment stops a running turn at its next call."""
     found = await provider_resources(db, agent_id, connection_ids)
     return {connection_id for connection_id, (_provider, addresses) in found.items() if not addresses}
+
+
+async def provider_identifiers(db: AsyncSession, agent_id: int, connection_ids: list[str]) -> dict[str, list[str]]:
+    """The provider's own ids (for AgentPhone, the number ids) of the resources assigned to the agent, per connection.
+
+    Resources recorded without a provider id are left out, so a call that names a number only by id cannot match them."""
+    if not connection_ids:
+        return {}
+    rows = (await db.execute(
+        select(AgentServiceResource.connection_id, AgentServiceResource.provider_resource_id)
+        .join(AgentServiceAssignment, AgentServiceAssignment.resource_id == AgentServiceResource.id)
+        .where(AgentServiceAssignment.agent_id == agent_id, AgentServiceResource.connection_id.in_(connection_ids),
+               AgentServiceResource.provider_resource_id.is_not(None))
+    )).all()
+    found: dict[str, list[str]] = {}
+    for connection_id, identifier in rows:
+        found.setdefault(connection_id, []).append(identifier)
+    return found

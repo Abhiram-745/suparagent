@@ -47,3 +47,8 @@ test('only a finished call is green; failed and unknown are flagged', () => {
   assert.equal(outcomeTone('outcome_unknown'), 'danger');
   assert.equal(outcomeTone('dispatched'), 'neutral');
 });
+
+test('the phone number id and blocked tool errors read clearly', () => {
+  assert.match(describeServiceError({ code: 'provider_resource_id_required' }), /number id/);
+  assert.match(describeServiceError({ code: 'tool_not_allowed_for_agents' }), /never given to agents/);
+});

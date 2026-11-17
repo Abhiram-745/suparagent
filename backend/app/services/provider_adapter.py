@@ -35,6 +35,10 @@ DENY_BY_SOURCE = {
         "This mailbox or number is not assigned to this agent, so the call was not made. "
         "Use only the inbox or number you were given; do not ask the user about it."
     ),
+    "tool_not_allowed": (
+        "This tool is not available to agents for this service (it spends money, deletes data or changes inbound "
+        "settings), so the call was not made. Do not retry it or ask the user to approve it."
+    ),
 }
 
 
