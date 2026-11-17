@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import { api, ApiError } from './api.ts';
-import { categoryLabel, filterTemplates, groupByCategory, hireableChoices, preTick, suggestionReasons, hireSummary, installTemplateSkills, MAX_HIRE, toggleChoice, requirementBadges, requirementLabel, skillInstallNotice, starterRoutinesLabel, uniqueAgentName } from './templates.ts';
+import { addedTemplateIds, categoryLabel, filterTemplates, groupByCategory, hireableChoices, preTick, suggestionReasons, hireSummary, installTemplateSkills, MAX_HIRE, toggleChoice, requirementBadges, requirementLabel, skillInstallNotice, starterRoutinesLabel, uniqueAgentName } from './templates.ts';
 
 const t = (id, name, role, category, description = '') => ({ id, name, role, category, description, instructions: '', color: '#000000', example_requests: [], requires: [], available: true, missing: [], starter_notes: null, skills: [], routines: [], suggested_tools: [], setup_depth: 'express', setup_text: null });
 const list = [
@@ -146,4 +146,18 @@ test('preTick keeps suggested workers the server would accept, in order, within 
 
 test('suggestionReasons maps each suggested id to its reason', () => {
   assert.deepEqual(suggestionReasons([{ template_id: 'a', reason: 'Fits' }]), { a: 'Fits' });
+});
+
+test('a worker counts as added only while an agent still has its instructions and role', () => {
+  const seo = { ...t('work-seo', 'SEO writer', 'SEO writer', 'marketing'), instructions: 'Write about SEO.' };
+  const lead = { ...t('work-lead', 'Lead researcher', 'Lead researcher', 'marketing'), instructions: 'Find leads.' };
+  const blank = { ...t('work-blank', 'Blank', 'Blank', 'work'), instructions: '' };
+  const agents = [
+    { instructions: 'Write about SEO.', title: 'SEO writer' },
+    { instructions: 'Find leads, and more.', title: 'Lead researcher' },
+    { instructions: '', title: 'Blank' },
+  ];
+  assert.deepEqual(addedTemplateIds(agents, [seo, lead, blank]), ['work-seo']);
+  assert.deepEqual(addedTemplateIds([], [seo]), []);
+  assert.deepEqual(addedTemplateIds([{ instructions: null }], [seo]), []);
 });

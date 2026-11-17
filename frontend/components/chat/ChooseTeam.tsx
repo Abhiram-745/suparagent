@@ -7,6 +7,7 @@ import { BusinessProfileForm } from "./BusinessProfileForm";
 import { WorkerGrants } from "./WorkerGrants";
 import { EmptyPanel, ErrorState, LoadingState } from "./PanelState";
 import {
+  addedTemplateIds,
   categoryLabel,
   groupByCategory,
   hireableChoices,
@@ -23,7 +24,7 @@ import {
   type TemplateCatalog,
 } from "@/lib/templates";
 
-const TAG = "rounded border border-line px-1.5 py-0.5 text-[11px] text-muted";
+const TAG = "max-w-full break-words rounded border border-line px-1.5 py-0.5 text-[11px] text-muted";
 
 // Pick any number of ready-made workers and add them in one step. Nothing is created until
 // Add is pressed; workers ask first, hold no connected-app access and their routines stay paused.
@@ -58,18 +59,29 @@ export function ChooseTeam({
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [helpNote, setHelpNote] = useState<string | null>(null);
   const [profileDone, setProfileDone] = useState(false);
+  // Workers an earlier hire already made, and the ones the person chose to add another copy of.
+  const [added, setAdded] = useState<string[]>([]);
+  const [copies, setCopies] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
     api
       .listTemplates()
-      .then((value) => { if (!cancelled) setCatalog(value); })
+      .then((value) => {
+        if (cancelled) return;
+        setCatalog(value);
+        // If the agent list cannot be read, every worker stays offered, as before.
+        api.listAgents().then((agents) => { if (!cancelled) setAdded(addedTemplateIds(agents, value.templates)); }).catch(() => {});
+      })
       .catch(() => { if (!cancelled) setLoadError("Could not load the workers."); });
     return () => { cancelled = true; };
   }, [reload]);
 
   const groups = useMemo(() => (catalog ? groupByCategory(catalog.templates, catalog.categories) : []), [catalog]);
-  const ticked = useMemo(() => hireableChoices(chosen, catalog?.templates ?? []), [chosen, catalog]);
+  const ticked = useMemo(
+    () => hireableChoices(chosen, catalog?.templates ?? []).filter((id) => !added.includes(id) || copies.includes(id)),
+    [chosen, catalog, added, copies],
+  );
 
   // "Help me choose": three short questions, answered by the bundled catalog. It only ticks cards for
   // the person to review; nothing is created or granted until Add is pressed.
@@ -104,6 +116,8 @@ export function ChooseTeam({
     try {
       const result = await api.hireTemplates(ticked, provider, model);
       setReceipt(result);
+      setAdded((now) => [...new Set([...now, ...result.workers.map((w) => w.template_id)])]);
+      setCopies([]);
       setUndone(false);
       setProfileDone(false);
       onHired?.(result);
@@ -122,6 +136,7 @@ export function ChooseTeam({
     try {
       await api.undoHire(receipt.workers.map((w) => w.agent_id));
       setUndone(true);
+      setAdded((now) => now.filter((id) => !receipt.workers.some((w) => w.template_id === id)));
       setReceipt(null);
       setChosen([]);
       onUndone?.();
@@ -221,14 +236,15 @@ export function ChooseTeam({
             {group.templates.map((template) => {
               const isTicked = ticked.includes(template.id);
               const atLimit = !isTicked && ticked.length >= MAX_HIRE;
+              const alreadyAdded = added.includes(template.id) && !copies.includes(template.id);
               return (
-                <li key={template.id} className={`min-w-0 rounded-md border p-3 ${isTicked ? "border-accent bg-inset" : "border-line"}`}>
-                  <label className={`flex items-start gap-2 ${template.available && !atLimit ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}>
+                <li key={template.id} className={`min-w-0 break-words rounded-md border p-3 ${isTicked ? "border-accent bg-inset" : "border-line"}`}>
+                  <label className={`flex items-start gap-2 ${template.available && !atLimit && !alreadyAdded ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}>
                     <input
                       type="checkbox"
                       className="mt-0.5"
                       checked={isTicked}
-                      disabled={busy || !template.available || atLimit}
+                      disabled={busy || !template.available || atLimit || alreadyAdded}
                       onChange={() => setChosen(toggleChoice(ticked, template.id))}
                       aria-label={`Choose ${template.name}`}
                     />
@@ -246,6 +262,12 @@ export function ChooseTeam({
                       ) : (
                         <span key={badge.requirement} className={TAG}>{badge.text}</span>
                       ),
+                    )}
+                    {added.includes(template.id) && <span className={TAG}>Already added</span>}
+                    {alreadyAdded && (
+                      <button type="button" disabled={busy} onClick={() => setCopies((now) => [...now, template.id])} className={`${TAG} cursor-pointer underline hover:bg-hover`}>
+                        Add another copy
+                      </button>
                     )}
                     {template.routines.length > 0 && <span className={TAG}>{SETUP_DEPTH_LABELS[template.setup_depth]}</span>}
                     {starterRoutinesLabel(template.routines) && <span className={TAG}>{starterRoutinesLabel(template.routines)}</span>}

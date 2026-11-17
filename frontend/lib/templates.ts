@@ -174,6 +174,17 @@ export function hireableChoices(chosen: string[], templates: AgentTemplate[]): s
   return chosen.filter((id) => ok.has(id));
 }
 
+// Templates that already have an agent made from them. A worker counts as added when an agent still carries the
+// template's exact instructions and role line, so an agent the person has since rewritten no longer counts.
+export function addedTemplateIds(
+  agents: { instructions?: string | null; title?: string | null }[],
+  templates: AgentTemplate[],
+): string[] {
+  return templates
+    .filter((t) => t.instructions.trim() !== "" && agents.some((a) => (a.instructions ?? "") === t.instructions && (a.title ?? "") === t.role))
+    .map((t) => t.id);
+}
+
 export function hireSummary(receipt: HireReceipt): string {
   const names = receipt.workers.map((w) => w.name).join(", ");
   const count = receipt.workers.length;
