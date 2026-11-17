@@ -18,7 +18,7 @@ import { SkeletonList } from "@/components/ui/Skeleton";
 
 type AddForm = { kind: ServiceKind; address: string; label: string; identifier: string };
 
-export function AgentServicesSection({ agents }: { agents: MarketplaceAgent[] }) {
+export function AgentServicesSection({ agents, version = 0, onChanged }: { agents: MarketplaceAgent[]; version?: number; onChanged?: () => void }) {
   const [presets, setPresets] = useState<ServicePreset[]>([]);
   const [providers, setProviders] = useState<ServiceProvider[] | null>(null);
   const [resources, setResources] = useState<ServiceResource[]>([]);
@@ -54,7 +54,7 @@ export function AgentServicesSection({ agents }: { agents: MarketplaceAgent[] })
   }, [fetchAll]);
   const run = async (key: string, action: () => Promise<void>) => {
     setBusy(key); setError(null); setNotice(null);
-    try { await action(); } catch (reason) { setError(describeServiceError(reason)); } finally { setBusy(null); }
+    try { await action(); onChanged?.(); } catch (reason) { setError(describeServiceError(reason)); } finally { setBusy(null); }
   };
 
   useEffect(() => {
@@ -87,6 +87,14 @@ export function AgentServicesSection({ agents }: { agents: MarketplaceAgent[] })
     }, 2000);
     return () => clearInterval(timer);
   }, [signingIn]);
+
+  // The Custom MCP section changed a connection: show it as it is now (skipped on the first render).
+  const firstVersion = useRef(version);
+  useEffect(() => {
+    if (version === firstVersion.current) return;
+    firstVersion.current = version;
+    api.listCustomMcp().then(setConnections).catch(() => undefined);
+  }, [version]);
 
   const off = busy !== null;
   const formFor = (provider: ServiceProvider): AddForm =>
@@ -124,7 +132,7 @@ export function AgentServicesSection({ agents }: { agents: MarketplaceAgent[] })
     </div>;
   };
 
-  const lookup = (provider: ServiceProvider, form: AddForm, full: boolean, setForm: (patch: Partial<AddForm>) => void) => {
+  const lookup = (provider: ServiceProvider, form: AddForm, full: boolean, have: Set<string>, setForm: (patch: Partial<AddForm>) => void) => {
     const id = provider.connection_id;
     const list = found[id];
     return <div className="space-y-2">
@@ -134,12 +142,12 @@ export function AgentServicesSection({ agents }: { agents: MarketplaceAgent[] })
       })}>{busy === `lookup:${id}` ? "Looking up…" : "Look up what is on my account"}</Button>
       {list && (list.length === 0
         ? <p className="text-sm text-muted">The service reports nothing on this account yet.</p>
-        : <ul className="space-y-1">{list.map((item) => <li key={item.provider_resource_id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        : <ul aria-label="What the service reports" className="space-y-1">{list.map((item) => <li key={item.provider_resource_id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
             <span className="min-w-0 break-all">{item.address}{item.label ? <span className="text-muted"> · {item.label}</span> : null}</span>
-            <Button size="sm" disabled={off || item.added || full} onClick={() => setForm({
+            <Button size="sm" disabled={off || item.added || have.has(item.address.toLowerCase()) || full} onClick={() => setForm({
               address: item.address, identifier: item.provider_resource_id,
               label: form.label.trim() || item.label || (provider.provider === "agentphone" ? "Phone number" : "Inbox"),
-            })}>{item.added ? "Added" : "Use"}</Button>
+            })}>{item.added || have.has(item.address.toLowerCase()) ? "Added" : "Use"}</Button>
           </li>)}</ul>)}
     </div>;
   };
@@ -172,7 +180,7 @@ export function AgentServicesSection({ agents }: { agents: MarketplaceAgent[] })
       <div className="space-y-3">
         <p className="text-sm font-medium">Addresses</p>
         {mine.length === 0 && <p className="text-sm text-muted">None yet. Add one you already created at the service. Agents cannot create them.</p>}
-        <ul className="space-y-3">{mine.map((resource) => <li key={resource.id} className="space-y-2 rounded-md border border-line p-3">
+        <ul aria-label="Recorded addresses" className="space-y-3">{mine.map((resource) => <li key={resource.id} className="space-y-2 rounded-md border border-line p-3">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0"><p className="break-all font-medium">{resource.address}</p><p className="text-xs text-muted">{resource.label} · {agentNames(resource.agent_ids, agents)}</p></div>
             {confirm === resource.id
@@ -189,7 +197,7 @@ export function AgentServicesSection({ agents }: { agents: MarketplaceAgent[] })
               })} />)}
           </div>}
         </li>)}</ul>
-        {canLookUp && lookup(provider, form, full, setForm)}
+        {canLookUp && lookup(provider, form, full, new Set(mine.map((item) => item.address.toLowerCase())), setForm)}
         <div className="grid gap-3 sm:grid-cols-2">
           {!fixedKind && <Field label="Kind">{(props) => <Select {...props} value={form.kind} disabled={off} onChange={(event) => setForm({ kind: event.target.value as ServiceKind })}>
             <option value="email">Email address</option><option value="phone">Phone number</option></Select>}</Field>}
