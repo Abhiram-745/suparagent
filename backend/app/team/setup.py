@@ -657,7 +657,7 @@ async def close_thread(db, owner, caller_id, thread_id, *, current_thread_id):
 
 # --- tool dispatch (called by the team bridge) ----------------------------------------
 
-TOOLS = ('create_agent', 'list_team_setup', 'propose_team_setup', 'propose_bot_deletion', 'list_threads', 'close_thread')
+TOOLS = ('create_agent', 'list_team_setup', 'suggest_workers', 'propose_team_setup', 'propose_bot_deletion', 'list_threads', 'close_thread')
 WRITES = ('create_agent', 'propose_team_setup', 'propose_bot_deletion')
 
 
@@ -668,6 +668,8 @@ async def call(rt, run, name, args):
     from app.team import policy
     if name in WRITES and (run.ctx.approval_mode == 'plan' or run.ctx.team.origin in policy.UNATTENDED):
         raise TeamError('forbidden', 'Changing the team is unavailable for this turn.')
+    if name == 'suggest_workers':
+        return suggest_workers(args)
     owner, caller = rt.owner_id, run.agent_id
     async with rt.session() as db:
         if name == 'list_team_setup':
@@ -737,3 +739,21 @@ def _checker(rt):
         except EngineModelInvalid as exc:
             raise TeamError('unknown_model', str(exc)) from None
     return check
+
+
+def suggest_workers(args):
+    """Rank bundled workers for stated goals. Read-only: catalog data only, no database, model or network use."""
+    from app.templates import suggest
+    if set(args) - {'goals', 'about', 'max_setup', 'request_id'}:
+        raise TeamError('invalid_input', 'Unrecognised suggestion settings.')
+    goals = args.get('goals') or []
+    if not isinstance(goals, list) or len(goals) > 8 or not all(isinstance(g, str) and len(g) <= 120 for g in goals):
+        raise TeamError('invalid_input', 'Give up to eight goals of 120 characters or fewer.')
+    about = args.get('about') or ''
+    if not isinstance(about, str) or len(about) > 500:
+        raise TeamError('invalid_input', 'Describe the business in 500 characters or fewer.')
+    max_setup = args.get('max_setup') or 'guided'
+    if max_setup not in suggest.SETUP_RANK:
+        raise TeamError('invalid_input', 'Use express, standard or guided.')
+    found = suggest.suggest(goals, about, max_setup=max_setup)
+    return {'suggestions': [{'template_id': f.template_id, 'reason': f.reason} for f in found]}

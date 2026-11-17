@@ -105,6 +105,9 @@ class Agent(Base):
     created_by_agent_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     instructions_reviewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    # Owner opt-in: scheduled runs may use this worker's paid marketplace tools without waiting for approval, inside
+    # the spending limits. Only the owner spending endpoint sets it; templates, hire and setup chat never do.
+    scheduled_paid_use: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=expression.false())
     created_at: Mapped[datetime] = mapped_column(
         UTCDateTime, server_default=func.now(), nullable=False
     )

@@ -9,6 +9,7 @@ import { useT } from "@/lib/use-i18n";
 import { onboarding, onboardingChatHref, STARTER_ROLES, type OnboardingDraft, type OnboardingState } from "@/lib/onboarding";
 import { EngineSettings } from "./EngineSettings";
 import { EngineModelFields } from "./chat/EngineModelFields";
+import { ChooseTeam } from "./chat/ChooseTeam";
 import { DesktopPermissions } from "./DesktopPermissions";
 import { Banner } from "./ui/Banner";
 import { Button } from "./ui/Button";
@@ -24,7 +25,8 @@ export function OnboardingApp() {
   const router = useRouter();
   const tRef = useRef(t);
   useEffect(() => { tRef.current = t; }, [t]);
-  const steps = [t("onboarding.step.welcome"), t("onboarding.step.engine"), t("onboarding.step.agent"), t("onboarding.step.ready")];
+  // "Team" is plain English like the Choose your team screen itself; it has no translations yet.
+  const steps = [t("onboarding.step.welcome"), t("onboarding.step.engine"), t("onboarding.step.agent"), "Team", t("onboarding.step.ready")];
   const starterRoles = [
     { name: t("onboarding.role.writing.name"), purpose: t("onboarding.role.writing.purpose"), first_request: t("onboarding.role.writing.firstRequest") },
     { name: t("onboarding.role.research.name"), purpose: t("onboarding.role.research.purpose"), first_request: t("onboarding.role.research.firstRequest") },
@@ -38,6 +40,7 @@ export function OnboardingApp() {
   const [error, setError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [loadTick, setLoadTick] = useState(0);
+  const [hiredCount, setHiredCount] = useState(0);
   const [lastSaved, setLastSaved] = useState("");
 
   useEffect(() => {
@@ -215,9 +218,23 @@ export function OnboardingApp() {
         )}
         {draft.step === 3 && (
           <>
+            <h1 className="text-title font-semibold">Choose your team</h1>
+            <ChooseTeam
+              provider={draft.provider || undefined}
+              model={draft.model || undefined}
+              skipLabel="Skip this step"
+              onSkip={() => change({ step: 4 })}
+              onHired={(receipt) => setHiredCount(receipt.workers.length)}
+              onUndone={() => setHiredCount(0)}
+            />
+          </>
+        )}
+        {draft.step === 4 && (
+          <>
             <h1 className="text-title font-semibold">{t("onboarding.ready.title")}</h1>
             <p className="text-sm">{engine?.label ?? draft.provider} · {draft.model || t("onboarding.model.default")}</p>
             <p className="text-sm">{draft.create_agent ? t("onboarding.summary.createdAgent", { name: draft.name.trim(), purpose: draft.purpose.trim() }) : t("onboarding.summary.continueExisting")}</p>
+            <p className="text-sm">{hiredCount > 0 ? `Ready-made workers: ${hiredCount} added, routines paused.` : "Ready-made workers: none added."}</p>
             <p className="text-sm text-muted">{state.execution_host === "desktop" ? t("onboarding.workspace.desktop") : t("onboarding.workspace.server")} {t("onboarding.approvalMode")}</p>
             <DesktopPermissions />
             <details className="text-sm">
@@ -244,7 +261,7 @@ export function OnboardingApp() {
         )}
         <div className="flex flex-wrap gap-2">
           {draft.step > 0 && <Button disabled={locked} onClick={() => change({ step: draft.step - 1 })}>{t("onboarding.back")}</Button>}
-          {draft.step < 3
+          {draft.step < 4
             ? <Button variant="primary" disabled={!canContinue} onClick={() => change({ step: draft.step + 1 })}>{t("onboarding.continue")}</Button>
             : <Button variant="primary" disabled={locked || !!saveError} loading={working} onClick={() => void finish()}>{working ? t("onboarding.saving") : t("onboarding.openChat")}</Button>}
           <Button className="ml-auto" variant="ghost" disabled={locked} onClick={() => void finish(true)}>{t("onboarding.setUpLater")}</Button>

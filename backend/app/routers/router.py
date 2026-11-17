@@ -77,11 +77,15 @@ router.include_router(history_export_router)
 router.include_router(profile_router)
 from app.routers.templates import router as templates_router
 router.include_router(templates_router)
+from app.routers.spend import router as spend_router
+router.include_router(spend_router)
 
 from app.routers.team import router as team_router
 from app.routers.rooms import router as rooms_router
 from app.routers.memory import router as memory_router
 router.include_router(memory_router)
+from app.routers.business_profile import router as business_profile_router
+router.include_router(business_profile_router)
 router.include_router(team_router)
 router.include_router(rooms_router)
 

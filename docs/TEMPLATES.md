@@ -1,6 +1,6 @@
 # Templates
 
-Templates are ready-made starting points for new agents. Open **Agents → Templates…** to browse a bundled list of roles, filter by category (Everyday, Work, Writing, Design, Sales, Personal) and search by name, role, description or category.
+Templates are ready-made starting points for new agents. Open **Agents → Templates…** to browse a bundled list of roles, filter by category (Everyday, Work, Writing, Design, Sales, Marketing, Personal) and search by name, role, description or category.
 
 ## What choosing one does
 
@@ -12,9 +12,15 @@ After Save the new agent is selected, ready to chat. Adding the same template ag
 
 Some templates suggest skills (text instructions the agent can be asked to follow). They are listed with a checkbox in the form and saved on the new agent after it is created. If saving a skill fails, or this version has no skills library, the agent stays and a notice names what was not added.
 
+## Workers
+
+A few templates are **workers**: roles built around scheduled, MuAPI-backed jobs (SEO writer, Lead researcher, Daily briefer). Each card also shows its **starter routines (paused)** and a **setup depth** (Express, Standard or Guided). These are descriptions only: choosing a worker fills the form like any other template and creates no routine, schedules nothing and grants no tool. A worker's instructions are its short role text followed once by shared run rules (drafts only, a fixed order for paid lookups, one run record per run). Suggested MuAPI tools are named for you to grant later; they are never granted by choosing a template.
+
 ## Roles that need a connection
 
 A template built around a connection this app does not have yet (email, community feeds) is shown with "Needs … · not available yet" and its Add button is disabled. Most roles need no connection and work offline.
+
+A role built around a connection you can set up in this app (Muapi) can be added before the connection exists. It shows "Needs Muapi · Connect" until the Muapi listing is installed from the marketplace and its token is saved; Connect opens the marketplace. Adding the role grants nothing and calls nothing, and the role cannot use Muapi tools until you grant them to the agent. `GET /templates` reports each template's `missing` connections for this workspace; the check is local and makes no Muapi request.
 
 ## Where the catalog lives
 
@@ -23,3 +29,15 @@ A template built around a connection this app does not have yet (email, communit
 ## Not included yet
 
 Saved presets, a public or organisation catalog, team packages, importing from GitHub, and creating a team from a project folder.
+
+## Adding several at once
+
+Setup has a "Choose your team" step, and Agents → Templates has "Hire several". Both list every bundled worker by category with its setup depth and any connection it needs, and let the person tick none, some or all (up to eight). Adding calls `POST /templates/hire` once with template ids only: every agent, skill, note and paused routine is created together, or none are. Workers ask first, hold no connected-app access and have no schedule.
+
+**Help me choose.** The Choose your team screen has a Help me choose button with three questions: what you want help with (a short list), what the business does (optional) and whether to show only workers that start with no questions. The answer ticks matching workers for you to change. Ranking uses only the bundled catalog (`backend/app/templates/suggest.py`): no model call, no network, nothing created, nothing granted. The team lead has a read-only `suggest_workers` tool with the same ranking. The first version asks its questions on the screen; a lead interview in chat that fills in the ticks is not built.
+
+`POST /templates/hire/undo` takes the agent ids from the receipt and removes them only if every one is still exactly as added: not edited, no conversation, and every routine still paused and never run. Otherwise nothing is removed and the error names the agent that blocked it.
+
+## Business profile
+
+Workers start from one shared business profile: what the business sells, who it is for, the tone to write in, links, hours and things never to say. The person writes it once (after adding workers in Choose your team, or later in Memory → Business profile). It is stored beside About me, outside every agent's folder, and goes into every turn's system prompt as background that grants no permission. Agents cannot change it; a worker that wants a change says so in its notes for the owner. Text that looks like a key, token or password is refused, not stored. Each field has a size limit. Proposed drafts from workers that the owner accepts are not built yet.

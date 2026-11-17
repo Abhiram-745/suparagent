@@ -14,6 +14,7 @@ from app.db.models.event import Event
 from app.db.models.approval import Approval
 from app.db.models.app_setting import AppSetting, SettingAudit
 from app.db.models.computer import Computer
+from app.db.models.spend_ledger import SpendLedger
 from app.db.models.routine import Routine, RoutineRun, RoutineAppAction, WebhookReceipt
 from app.db.models.notification import Notification
 from app.db.models.needs_you import NeedsYouState
@@ -57,6 +58,7 @@ __all__ = [
     "RoutineRun",
     "RoutineAppAction",
     "WebhookReceipt",
+    "SpendLedger",
     "NeedsYouState",
     "TeamNotice",
     "Notification",

@@ -2,8 +2,17 @@
 
 ## Unreleased
 
+### Added
+
+- Spending limits for paid marketplace tools (a tool is paid when its input takes `max_cost_usd`): $0.50 per call, $2.00 per run and $20 per worker per month by default, changed only by the owner (`/spend-limits`, desktop settings `SPEND_*_CENTS`). Every paid call is recorded in a spend ledger and settles at the cost the service reports, or at its cap. A call over a limit is refused and the run ends `partial` with a spend line; a monthly refusal pauses the routine with reason `spend_limit`. Scheduled runs wait for approval on paid tools unless the owner turns on scheduled paid use for that worker.
+- Add a business profile: one short note per workspace (what the business sells, who it is for, tone, links, hours and things never to say) that every agent reads as read-only background and only the person writes. Text that looks like a key, token or password is refused. Edit it from Memory → Business profile, or right after adding workers in Choose your team (skippable). `GET` and `PUT /business-profile`.
+- Add several ready-made workers at once: `POST /templates/hire` adds the chosen templates together or not at all (each asks first, holds no connected-app access, routines paused), and `POST /templates/hire/undo` removes them again while they are unchanged and unused. A "Choose your team" step in desktop setup and a "Hire several" view in Agents → Templates let people tick any number.
+- Help me choose: on the Choose your team screen, answer a few short questions and the matching workers are ticked for you to review. It uses only the bundled catalog, creates nothing and grants nothing until you add. `POST /templates/suggest` does the ranking, and the team lead has a read-only `suggest_workers` tool that returns the same ranked ids.
+- Add three worker templates (SEO writer, Lead researcher, Daily briefer) with a Marketing category, paused starter routines shown on the card, a setup depth and shared run rules. Choosing one only fills the new-agent form; it creates no routine and grants no tool.
+
 ### Changed
 
+- Templates know which connections this workspace has: `GET /templates` now lists each role's `missing` connections, and a role that needs only Muapi can be added before Muapi is connected (it shows "Needs Muapi · Connect"). No bundled role needs Muapi yet. Tested with backend and frontend unit tests; no real Muapi connector, browser or packaged app was run.
 - Give team setup a versioned review card: the person can revise, approve or decline the specialist plan, and nothing changes before approval. Approval rechecks current team state and records its result and Undo data with the transcript event. The applied card opens each new specialist with an editable, unsent first-task draft. No automated, live-provider or packaged-release verification is claimed for this source change.
 - Expand the Muapi Community MCP listing to selected data research APIs. Search and estimate are read-only; paid lookups require a per-call USD cap and approval and can consume Muapi credits.
 

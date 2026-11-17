@@ -7,6 +7,7 @@ import { api, ApiError, type Agent, type MemoryJournalRow, type MemoryProposal, 
 import { useT } from "@/lib/use-i18n";
 import { journalLabel, topicFileName } from "@/lib/memory";
 import { AboutMeTab, UpkeepCard } from "./MemoryUpkeep";
+import { BusinessProfileForm } from "./BusinessProfileForm";
 import { EmptyPanel, ErrorState, LoadingState } from "./PanelState";
 
 const FIELD =
@@ -16,7 +17,7 @@ const SMALL =
 const PRIMARY_SMALL =
   "cursor-pointer rounded-md px-3 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50 bg-accent text-accent-fg hover:opacity-90";
 
-type Tab = "topics" | "proposed" | "about" | "history";
+type Tab = "topics" | "proposed" | "about" | "business" | "history";
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -52,6 +53,7 @@ export function MemoryPanel({
     ["topics", "Topic notes"],
     ["proposed", `Proposed${proposed && proposed.length ? ` (${proposed.length})` : ""}`],
     ["about", "About me"],
+    ["business", "Business profile"],
     ["history", "History"],
   ];
   return (
@@ -84,6 +86,7 @@ export function MemoryPanel({
         />
       )}
       {tab === "about" && <AboutMeTab onError={setError} />}
+      {tab === "business" && <BusinessProfileForm />}
       {tab === "history" && <History agentId={agentId} onError={setError} onUndone={onNotesChanged} />}
     </section>
   );
