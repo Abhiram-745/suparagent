@@ -111,7 +111,7 @@ def test_there_are_eight_worker_templates_with_plain_names():
 
 
 def test_only_workers_that_use_paid_data_need_muapi_and_only_suggest_its_tools():
-    paid = {"everyday-daily-briefer", "sales-lead-researcher", "sales-outreach-drafter", "marketing-seo-writer", "marketing-social-manager"}
+    paid = {"everyday-daily-briefer", "sales-lead-researcher", "sales-outreach-drafter", "marketing-seo-writer", "marketing-social-manager", "marketing-ad-manager"}
     for t in workers():
         if t.id in paid:
             assert t.requires == ("muapi",), t.id
@@ -190,7 +190,7 @@ async def test_the_api_returns_the_composed_instructions_and_paused_routines():
     assert body["instructions"].endswith(catalog.RUN_RULES.rstrip())
     assert body["suggested_tools"] == list(catalog.MUAPI_TOOLS)
     assert body["setup_depth"] == "standard"
-    assert [r["id"] for r in body["routines"]] == ["seo-keyword-brief", "seo-draft-article"]
+    assert [r["id"] for r in body["routines"]] == ["seo-keyword-brief", "seo-draft-article", "seo-rank-check", "seo-competitor-gap", "seo-site-check"]
     assert all(r["enabled_after_install"] is False for r in body["routines"])
     assert listing["version"] == catalog.CATALOG_VERSION and "marketing" in listing["categories"]
-    assert [x["id"] for x in listing["templates"]] == ["marketing-ad-manager", "marketing-seo-writer", "marketing-social-manager"]
+    assert [x["id"] for x in listing["templates"]] == ["marketing-seo-writer", "marketing-social-manager", "marketing-ad-manager"]
