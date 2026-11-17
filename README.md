@@ -70,8 +70,9 @@ end.
 
 - **Create agents and teams.** Start with **Create by chatting** to ask your
   team lead (Chief of Staff) to propose specialists around a goal. Review and
-  confirm the plan before setup. New specialists start with Ask-first
-  permissions; app access and credentials stay under your control. Create
+  edit the plan card, then approve it to apply setup. Each new specialist gets
+  an editable first-task draft that is not sent automatically. New specialists
+  start with Ask-first permissions; app access and credentials stay under your control. Create
   agents manually with a name, role, engine, workspace, memory, and approval
   settings. A lead can delegate work to specialists or coordinate agents in
   shared rooms. Team leads can use Claude or Codex. See

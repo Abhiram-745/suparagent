@@ -4,7 +4,7 @@
 
 ### Changed
 
-- Surface **Create by chatting** with the team lead (Chief of Staff) in the README; the lead now presents a plain-language team plan for confirmation, then offers a first-task handoff. New specialists start with Ask-first permissions.
+- Give team setup a versioned review card: the person can revise, approve or decline the specialist plan, and nothing changes before approval. Approval rechecks current team state and records its result and Undo data with the transcript event. The applied card opens each new specialist with an editable, unsent first-task draft. No automated, live-provider or packaged-release verification is claimed for this source change.
 - Expand the Muapi Community MCP listing to selected data research APIs. Search and estimate are read-only; paid lookups require a per-call USD cap and approval and can consume Muapi credits.
 
 ## 0.8.7 - 2026-11-17

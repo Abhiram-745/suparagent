@@ -49,6 +49,7 @@ import { WorkspaceSwitcher } from "@/components/shell/WorkspaceSwitcher";
 import { useSession } from "@/components/AuthGate";
 import { can } from "@/lib/permissions";
 import { onboarding } from "@/lib/onboarding";
+import { loadDraft } from "@/lib/drafts";
 import { TeamPanel } from "./TeamPanel";
 import { parseRoom, roomHref } from "@/lib/rooms";
 import { chatAppLink, chatWebLink, type ChatTarget } from "@/lib/chat-link";
@@ -167,6 +168,8 @@ export function ChatApp() {
   const panel = parsePanel(params.get("panel"));
   const setPanel = (next: Panel | null) => router.replace(chatHref(params.toString(), next));
   const [draft, setDraft] = useState("");
+  const [pendingFirstTask, setPendingFirstTask] = useState<string | null>(null);
+  const [firstTaskSuggestion, setFirstTaskSuggestion] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const subscribeToThreadQueue = useCallback(
     (subscriber: () => void) => threadId === null ? () => {} : subscribeQueuedFollowUps(threadId, subscriber),
@@ -287,6 +290,15 @@ export function ChatApp() {
     }).catch(() => {});
     return () => { live = false; };
   }, [params, threadId, fullAccess]);
+
+  useEffect(() => {
+    const firstTask = pendingFirstTask;
+    if (threadId !== null || firstTask === null) return;
+    setPendingFirstTask(null);
+    setFirstTaskSuggestion(null);
+    setDraft(firstTask);
+    setFocusComposer(true);
+  }, [params, threadId, pendingFirstTask]);
 
   useEffect(() => {
     if (threadId === null || transcript.runningTurnId !== null || !transcript.items.some(item => item.kind === "turn_end")) return;
@@ -463,17 +475,24 @@ export function ChatApp() {
 
   useEffect(() => {
     const openAgent = (event: Event) => {
-      const detail = (event as CustomEvent<{ id: number; edit: boolean }>).detail;
+      const detail = (event as CustomEvent<{ id: number; edit: boolean; firstTask?: unknown }>).detail;
+      if (!detail || typeof detail.id !== "number" || typeof detail.edit !== "boolean") return;
       if (detail.edit) {
+        setPendingFirstTask(null);
+        setFirstTaskSuggestion(null);
         const target = agents?.find(agent => agent.id === detail.id);
         if (target) { setEditAgent(target); setAgentsCreate(false); setAgentsOpen(true); }
       } else {
+        const firstTask = typeof detail.firstTask === "string" && detail.firstTask.length <= 1000 ? detail.firstTask : null;
+        const savedNewDraft = loadDraft("new");
+        setPendingFirstTask(firstTask && !savedNewDraft.trim() && !(threadId === null && draft.trim()) ? firstTask : null);
+        setFirstTaskSuggestion(firstTask && (savedNewDraft.trim() || (threadId === null && draft.trim())) ? firstTask : null);
         setNewAgentId(detail.id); setNewModel(null); setNewEffort(null); router.push(`/chat?agent=${detail.id}`); setFocusComposer(true);
       }
     };
     window.addEventListener("suparagent:open-agent", openAgent);
     return () => window.removeEventListener("suparagent:open-agent", openAgent);
-  }, [agents, router, setAgentsOpen]);
+  }, [agents, draft, router, setAgentsOpen, threadId]);
 
   useEffect(() => {
     if (!ready) return;
@@ -1460,6 +1479,18 @@ export function ChatApp() {
                     </li>
                   ))}
                 </ul>
+              </div>
+            </div>
+          )}
+          {firstTaskSuggestion && threadId === null && (
+            <div className="mx-auto mb-1 w-full max-w-3xl px-3" aria-live="polite">
+              <div className="rounded-field border border-line bg-raised px-3 py-2">
+                <p className="text-xs font-medium text-muted">Suggested first task</p>
+                <p className="mt-1 whitespace-pre-wrap break-words text-sm">{firstTaskSuggestion}</p>
+                <div className="mt-2 flex gap-3 text-xs">
+                  <button type="button" className="underline" onClick={() => { setDraft(firstTaskSuggestion); setFirstTaskSuggestion(null); setFocusComposer(true); }}>Use this task</button>
+                  <button type="button" className="underline" onClick={() => setFirstTaskSuggestion(null)}>Dismiss</button>
+                </div>
               </div>
             </div>
           )}
