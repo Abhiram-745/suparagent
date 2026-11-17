@@ -1,6 +1,6 @@
 import type { SkillDoc, SkillPreview, SkillSave, SkillSummary, SkillLearnPreview, SkillLearnSource } from "./skills";
 import type { SpendLimits, SpendOverview, WorkerSpend } from "./spend";
-import type { HireReceipt, SuggestGoal, Suggestion, TemplateCatalog, TemplateSkill } from "./templates";
+import type { HireReceipt, LatestSuggestion, SuggestGoal, Suggestion, TemplateCatalog, TemplateSkill } from "./templates";
 import type { ComposioAccount, ComposioApp, ComposioLink } from "./connected-apps";
 import type { MarketplaceCatalog, MarketplaceConnection, MarketplaceSection, MarketplaceTool } from "./marketplace";
 import type { CustomMcpConnection, CustomMcpDraft, CustomMcpTool } from "./custom-mcp";
@@ -1398,6 +1398,7 @@ export const api = {
   hireTemplates: (templateIds: string[], provider?: string, model?: string | null) =>
     request<HireReceipt>("/templates/hire", { method: "POST", body: JSON.stringify({ template_ids: templateIds, ...(provider ? { provider } : {}), ...(model ? { model } : {}) }) }),
   suggestGoals: () => request<SuggestGoal[]>("/templates/suggest/goals"),
+  latestWorkerSuggestion: () => request<LatestSuggestion | null>("/templates/suggest/latest"),
   suggestTemplates: (goals: string[], about: string, maxSetup: "express" | "guided") =>
     request<{ suggestions: Suggestion[] }>("/templates/suggest", {
       method: "POST",

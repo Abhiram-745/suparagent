@@ -669,7 +669,11 @@ async def call(rt, run, name, args):
     if name in WRITES and (run.ctx.approval_mode == 'plan' or run.ctx.team.origin in policy.UNATTENDED):
         raise TeamError('forbidden', 'Changing the team is unavailable for this turn.')
     if name == 'suggest_workers':
-        return suggest_workers(args)
+        from app.services import worker_suggestions
+        result = suggest_workers(args)
+        # Remember the answer so the Choose your team screen can offer "Use these suggestions". Ids only: nothing is created.
+        worker_suggestions.record(result['suggestions'], thread_id=run.thread_id)
+        return result
     owner, caller = rt.owner_id, run.agent_id
     async with rt.session() as db:
         if name == 'list_team_setup':

@@ -36,6 +36,8 @@ Setup has a "Choose your team" step, and Agents → Templates has "Hire several"
 
 **Help me choose.** The Choose your team screen has a Help me choose button with three questions: what you want help with (a short list), what the business does (optional) and whether to show only workers that start with no questions. The answer ticks matching workers for you to change. Ranking uses only the bundled catalog (`backend/app/templates/suggest.py`): no model call, no network, nothing created, nothing granted. The team lead has a read-only `suggest_workers` tool with the same ranking. The first version asks its questions on the screen; a lead interview in chat that fills in the ticks is not built.
 
+**Chat with your team lead instead.** Next to Help me choose, this opens your team lead in a new tab with a short interview already typed in (an unsent message you already had is kept). When the lead calls `suggest_workers`, the server remembers only the latest answer: template ids and short reasons, no chat text, up to 8, for 24 hours (`GET /templates/suggest/latest`). The screen checks for a suggestion newer than the one that existed when the chat was opened and offers **Use these suggestions**, which ticks exactly those workers (only ones that can be added now). You still confirm with Add; chatting creates and grants nothing. If no team lead is set up, the screen says so and the three questions remain.
+
 `POST /templates/hire/undo` takes the agent ids from the receipt and removes them only if every one is still exactly as added: not edited, no conversation, and every routine still paused and never run. Otherwise nothing is removed and the error names the agent that blocked it.
 
 ## Business profile
