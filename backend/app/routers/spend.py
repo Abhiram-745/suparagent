@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import app_settings
+from app.desktop import profile
 from app.db.models.agent import Agent
 from app.db.session import get_db
 from app.routers.agents import get_runtime
@@ -23,6 +24,8 @@ class LimitsResponse(BaseModel):
     per_call_cents: int
     per_run_cents: int
     per_worker_month_cents: int
+    # Where each value comes from: "database" (the owner changed it), "environment" or "default".
+    sources: dict[str, str] = {}
 
 
 class LimitsChange(BaseModel):
@@ -49,10 +52,11 @@ class WorkerChange(BaseModel):
     scheduled_paid_use: bool
 
 
-def _limits() -> LimitsResponse:
-    current = spend.limits()
-    return LimitsResponse(per_call_cents=current["per_call"], per_run_cents=current["per_run"],
-                          per_worker_month_cents=current["monthly"])
+async def _limits(db: AsyncSession) -> LimitsResponse:
+    current = await spend.effective_limits(db)
+    return LimitsResponse(per_call_cents=current["per_call"][0], per_run_cents=current["per_run"][0],
+                          per_worker_month_cents=current["monthly"][0],
+                          sources={name: source for name, (_cents, source) in current.items()})
 
 
 @router.get("", response_model=SpendResponse)
@@ -61,11 +65,20 @@ async def read_spend(rt: ThreadRuntime = Depends(get_runtime), db: AsyncSession 
                                .order_by(Agent.id))).all()
     workers = [WorkerSpend(agent_id=a.id, name=a.name, scheduled_paid_use=a.scheduled_paid_use,
                            month_cents=await spend.month_spent(db, rt.owner_id, a.id)) for a in agents]
-    return SpendResponse(limits=_limits(), workers=workers)
+    return SpendResponse(limits=await _limits(db), workers=workers)
 
 
 @router.put("", response_model=LimitsResponse)
 async def change_limits(change: LimitsChange, db: AsyncSession = Depends(get_db)):
+    if not profile.active():
+        # Headless and hosted installs have no desktop settings registry: the owner's choice is stored in the same
+        # settings table and read ahead of the environment value. The route still needs the owner's own session.
+        try:
+            await spend.save_headless_limits(db, {"per_call": change.per_call_cents, "per_run": change.per_run_cents,
+                                                  "monthly": change.per_worker_month_cents})
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+        return await _limits(db)
     values = {"SPEND_PER_CALL_CENTS": change.per_call_cents, "SPEND_PER_RUN_CENTS": change.per_run_cents,
               "SPEND_PER_WORKER_MONTH_CENTS": change.per_worker_month_cents}
     try:
@@ -75,10 +88,10 @@ async def change_limits(change: LimitsChange, db: AsyncSession = Depends(get_db)
     except app_settings.VersionConflict:
         raise HTTPException(409, "The limits changed elsewhere. Reload and try again.") from None
     except PermissionError:
-        raise HTTPException(404, "Spending limits are changed in the desktop app. Headless installs use environment configuration.") from None
+        raise HTTPException(409, "Spending limits cannot be changed right now.") from None
     except (ValueError, OSError) as exc:
         raise HTTPException(422, str(exc)) from None
-    return _limits()
+    return await _limits(db)
 
 
 @router.put("/workers/{agent_id}", response_model=WorkerSpend)

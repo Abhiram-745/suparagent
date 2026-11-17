@@ -64,10 +64,13 @@ def agent_grant_lock(agent_id: int) -> asyncio.Lock:
 
 
 class McpError(Exception):
-    def __init__(self, code: str, message: str, status: int = 400):
+    def __init__(self, code: str, message: str, status: int = 400, *, not_run: bool = False):
         super().__init__(message)
         self.code = code
         self.status = status
+        # True when the failure is known to have happened before the remote tool ran (a refusal, a rejected request,
+        # a connection that was never made), so a paid call can be counted as costing nothing.
+        self.not_run = not_run
 
 
 def canonical(value: object) -> str:
@@ -578,7 +581,7 @@ class RemoteMcpSession:
                 continue  # a notification (progress, logging) never carries the result
             if value.get("id") == expected_id:
                 if "error" in value:
-                    raise McpError("remote_error", "The remote MCP server rejected the request.", 502)
+                    raise McpError("remote_error", "The remote MCP server rejected the request.", 502, not_run=True)
                 result = value.get("result")
                 if isinstance(result, dict):
                     return result
@@ -617,20 +620,22 @@ class RemoteMcpSession:
     async def _post(self, message: dict, *, expect_result: bool):
         body = canonical(message).encode("utf-8")
         if len(body) > MAX_REQUEST_BYTES:
-            raise McpError("request_too_large", "The remote MCP request is too large.")
+            raise McpError("request_too_large", "The remote MCP request is too large.", not_run=True)
         try:
             async with asyncio.timeout(20):
                 async with self.client.stream("POST", self.endpoint, headers=self._headers(), content=body) as response:
                     if 300 <= response.status_code < 400:
-                        raise McpError("redirect_denied", "The remote MCP endpoint redirected; redirects are blocked.", 502)
+                        raise McpError("redirect_denied", "The remote MCP endpoint redirected; redirects are blocked.", 502, not_run=True)
                     if response.status_code in (401, 403):
-                        raise McpError("authentication_failed", "The remote MCP server rejected its saved credential.", 502)
+                        raise McpError("authentication_failed", "The remote MCP server rejected its saved credential.", 502, not_run=True)
                     if not expect_result:
                         if response.status_code not in (200, 202, 204):
                             raise McpError("remote_error", "The remote MCP server rejected initialization.", 502)
                         return None
                     if response.status_code != 200:
-                        raise McpError("remote_error", "The remote MCP server did not return a successful result.", 502)
+                        # A 4xx is the server refusing the request; a 5xx may have happened after the work began.
+                        raise McpError("remote_error", "The remote MCP server did not return a successful result.", 502,
+                                       not_run=400 <= response.status_code < 500)
                     raw_session = response.headers.get("mcp-session-id")
                     if raw_session:
                         if len(raw_session) > 256 or any(ord(char) < 33 or ord(char) > 126 for char in raw_session):

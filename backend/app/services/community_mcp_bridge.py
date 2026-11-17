@@ -700,12 +700,14 @@ class CommunityMcpBridge:
                         result = await session.call_tool(item["remote_name"], arguments)
                 except TimeoutError:
                     raise community_mcp.McpError("timeout", "The tool timed out.", 504) from None
-            except community_mcp.McpError:
+            except community_mcp.McpError as failure:
                 logger.info("marketplace tool result was not confirmed", slug=item["manifest"]["slug"],
                             schema=item["schema_digest"][:12])
                 result = {"error": "The service did not confirm the result. The call may have run; check before retrying.",
                           "code": "outcome_unknown"}
-            await self._settle_spend(ledger_id, result)
+                await self._settle_spend(ledger_id, result, failure=failure)
+            else:
+                await self._settle_spend(ledger_id, result)
             if receipt_id is not None:
                 async with self.runtime.session() as db:
                     await begin_write(db)
@@ -718,17 +720,28 @@ class CommunityMcpBridge:
                         await db.commit()
             return result
 
-    async def _settle_spend(self, ledger_id: int | None, result, *, released: bool = False) -> None:
-        """Close a paid call's ledger row: at the cost the service reported, else at the cap it reserved."""
+    async def _settle_spend(self, ledger_id: int | None, result, *, released: bool = False,
+                            failure: Exception | None = None) -> None:
+        """Close a paid call's ledger row.
+
+        A call that clearly never ran (a refused or rejected request, no connection) costs nothing. Otherwise it is
+        counted at the cost the service reported, else at the cap it reserved. An unconfirmed outcome keeps its cap, and
+        the row records why."""
         if ledger_id is None:
             return
         from app.db.transactions import begin_write
         async with self.runtime.session() as db:
             await begin_write(db)
             if released:
-                await spend.release(db, ledger_id)
+                await spend.release(db, ledger_id, "never_dispatched")
+            elif failure is not None and spend.failed_before_running(failure):
+                await spend.release(db, ledger_id, spend.failure_reason(failure))
+            elif failure is not None:
+                await spend.settle(db, ledger_id, None, spend.failure_reason(failure))
             else:
-                await spend.settle(db, ledger_id, spend.reported_cost(result))
+                cost = spend.reported_cost(result)
+                tool_error = isinstance(result, dict) and result.get("isError") is True
+                await spend.settle(db, ledger_id, cost, "tool_error" if tool_error and cost is None else None)
             await db.commit()
 
     async def execute(self, alias: str, arguments: dict, *, via_broker: bool = False) -> dict:
