@@ -128,3 +128,83 @@ async def test_the_servers_own_name_is_kept_as_bounded_display_text(monkeypatch)
     await s.start()
     assert s.server_info["name"].startswith("Notes") and len(s.server_info["name"]) == 100
     assert s.server_info["version"] is None
+
+
+# A tool shaped like the ones AgentPhone's hosted server returned on a live account (2026-11-17): the newer
+# `execution` field sits beside `annotations`, and every one of its 35 tools carried it.
+AGENTPHONE_TOOL = {
+    "name": "list_numbers", "title": "List numbers", "description": "List phone numbers",
+    "inputSchema": {"type": "object", "properties": {"limit": {"type": "integer"}, "offset": {"type": "integer"}}},
+    "outputSchema": {"type": "object", "properties": {}},
+    "annotations": {"readOnlyHint": True, "idempotentHint": True, "destructiveHint": False, "openWorldHint": False},
+    "execution": {"taskSupport": "forbidden"},
+}
+
+
+def test_a_tool_with_the_newer_execution_and_icons_fields_is_accepted_and_they_are_not_kept():
+    tool = _normalize_tool({**AGENTPHONE_TOOL, "icons": [{"src": "https://example.com/i.png"}]})
+    assert tool["name"] == "list_numbers" and set(tool) == {"name", "description", "inputSchema", "schema_digest"}
+
+
+def test_an_unknown_tool_field_is_still_refused():
+    with pytest.raises(McpError):
+        _normalize_tool({**AGENTPHONE_TOOL, "surprise": {"run": "this"}})
+
+
+@pytest.mark.asyncio
+async def test_a_server_whose_tools_all_have_the_newer_fields_lists_them(monkeypatch):
+    s = session()
+
+    async def rpc(method, params=None):
+        return {"tools": [AGENTPHONE_TOOL, {**AGENTPHONE_TOOL, "name": "get_usage"}]}
+
+    monkeypatch.setattr(s, "_rpc", rpc)
+    assert [t["name"] for t in await s.list_tools()] == ["list_numbers", "get_usage"]
+
+
+@pytest.mark.asyncio
+async def test_a_server_with_tools_none_of_which_can_be_read_is_an_error_not_zero_tools(monkeypatch):
+    s = session()
+
+    async def rpc(method, params=None):
+        return {"tools": [{**AGENTPHONE_TOOL, "surprise": 1}, {**AGENTPHONE_TOOL, "name": "other", "surprise": 1}]}
+
+    monkeypatch.setattr(s, "_rpc", rpc)
+    with pytest.raises(McpError) as caught:
+        await s.list_tools()
+    assert caught.value.code == "unsupported_tools" and "2 tools" in str(caught.value)
+
+
+@pytest.mark.asyncio
+async def test_a_server_that_really_has_no_tools_still_lists_none(monkeypatch):
+    s = session()
+
+    async def rpc(method, params=None):
+        return {"tools": []}
+
+    monkeypatch.setattr(s, "_rpc", rpc)
+    assert await s.list_tools() == []
+
+
+def test_bounds_up_to_the_largest_safe_javascript_integer_are_accepted_and_larger_ones_refused():
+    big = {"name": "t", "inputSchema": {"type": "object", "properties": {
+        "offset": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}}}}
+    assert _normalize_tool(big)["inputSchema"]["properties"]["offset"]["maximum"] == 9007199254740991
+    too_big = {"name": "t", "inputSchema": {"type": "object", "properties": {
+        "offset": {"type": "integer", "maximum": 9007199254740992}}}}
+    with pytest.raises(McpError):
+        _normalize_tool(too_big)
+    for bad in (float("inf"), True, "10"):
+        with pytest.raises(McpError):
+            _normalize_tool({"name": "t", "inputSchema": {"type": "object", "properties": {"n": {"type": "integer", "maximum": bad}}}})
+
+
+def test_the_no_op_property_names_rule_is_accepted_and_dropped_but_a_real_one_is_refused():
+    plain = {"name": "t", "inputSchema": {"type": "object", "properties": {
+        "variables": {"type": "object", "propertyNames": {"type": "string"}, "additionalProperties": True}}}}
+    assert "propertyNames" not in _normalize_tool(plain)["inputSchema"]["properties"]["variables"]
+    for rule in ({"type": "string", "pattern": "^a+$"}, {"type": "string", "maxLength": 3}, {}, "x"):
+        strict = {"name": "t", "inputSchema": {"type": "object", "properties": {
+            "variables": {"type": "object", "propertyNames": rule}}}}
+        with pytest.raises(McpError):
+            _normalize_tool(strict)
