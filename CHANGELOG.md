@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Changed
+
+- Surface **Create by chatting** with the team lead (Chief of Staff) in the README and clarify that new specialists start with Ask-first permissions.
+- Expand the Muapi Community MCP listing to selected data research APIs. Search and estimate are read-only; paid lookups require a per-call USD cap and approval and can consume Muapi credits.
+
 ## 0.8.7 - 2026-11-17
 
 Desktop 0.8.7: the installed app now updates itself from Settings → App updates (Download, then Restart to update) instead of showing a command. This release still has to be installed by hand; later ones update in place.
