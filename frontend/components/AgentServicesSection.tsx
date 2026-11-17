@@ -29,6 +29,8 @@ export function AgentServicesSection({ agents }: { agents: MarketplaceAgent[] })
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // The connection just added: its card is scrolled into view and outlined so a click is never silent.
+  const [fresh, setFresh] = useState<string | null>(null);
 
   const fetchAll = useCallback(() => Promise.all([
     api.listServiceProviders(), api.listServiceResources(), api.listCustomMcp(), api.listServiceAudit(20),
@@ -51,6 +53,11 @@ export function AgentServicesSection({ agents }: { agents: MarketplaceAgent[] })
     return () => { live = false; };
   }, [fetchAll]);
 
+  useEffect(() => {
+    if (!fresh || !providers?.some((item) => item.connection_id === fresh)) return;
+    document.getElementById(`provider-${fresh}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [fresh, providers]);
+
   const off = busy !== null;
   const formFor = (provider: ServiceProvider): AddForm =>
     forms[provider.connection_id] ?? { kind: kindOf(provider.provider) ?? "email", address: "", label: "" };
@@ -66,7 +73,8 @@ export function AgentServicesSection({ agents }: { agents: MarketplaceAgent[] })
     const limitText = limits[provider.connection_id] ?? String(provider.resource_limit);
     const limitValue = Number(limitText);
     const setForm = (patch: Partial<AddForm>) => setForms((old) => ({ ...old, [provider.connection_id]: { ...form, ...patch } }));
-    return <article key={provider.connection_id} className="space-y-4 rounded-lg border border-line p-4">
+    return <article key={provider.connection_id} id={`provider-${provider.connection_id}`}
+      className={`space-y-4 rounded-lg border p-4 ${fresh === provider.connection_id ? "border-accent ring-2 ring-accent/40" : "border-line"}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="font-semibold">{provider.connection_name}</h3>
@@ -142,13 +150,17 @@ export function AgentServicesSection({ agents }: { agents: MarketplaceAgent[] })
     {error && <Banner tone="danger">{error}</Banner>}{notice && <p role="status" className="text-sm text-muted">{notice}</p>}
     <div className="space-y-3 rounded-lg border border-line p-4">
       <p className="text-sm font-medium">Connect a service</p>
-      <div className="grid gap-3 sm:grid-cols-2">{presets.map((preset) => <div key={preset.preset} className="space-y-2 rounded-md border border-line p-3">
-        <p className="font-medium">{preset.label}</p><p className="text-xs text-muted">{preset.summary}</p>
-        <Button variant="primary" disabled={off} onClick={() => void run(`preset:${preset.preset}`, async () => {
-          await api.addServiceProvider(preset.preset, 3); await reload();
-          setNotice(`${preset.label} added, switched off. Sign in and turn it on under “Custom MCP servers” below.`);
-        })}>{busy === `preset:${preset.preset}` ? "Adding…" : `Connect ${preset.label}`}</Button>
-      </div>)}</div>
+      <div className="grid gap-3 sm:grid-cols-2">{presets.map((preset) => {
+        const have = (providers ?? []).filter((item) => item.provider === preset.preset).length;
+        return <div key={preset.preset} className="space-y-2 rounded-md border border-line p-3">
+          <p className="font-medium">{preset.label}</p><p className="text-xs text-muted">{preset.summary}</p>
+          {have > 0 && <p className="text-xs text-muted">You already have {have} {preset.label} {have === 1 ? "connection" : "connections"} below. Add another only for a different account.</p>}
+          <Button variant="primary" disabled={off} onClick={() => void run(`preset:${preset.preset}`, async () => {
+            const added = await api.addServiceProvider(preset.preset, 3); await reload(); setFresh(added.connection_id);
+            setNotice(`${preset.label} added below (highlighted), switched off. Sign in and turn it on under “Custom MCP servers” further down.`);
+          })}>{busy === `preset:${preset.preset}` ? "Adding…" : have > 0 ? `Add another ${preset.label} account` : `Connect ${preset.label}`}</Button>
+        </div>;
+      })}</div>
     </div>
     {providers === null ? <SkeletonList rows={2} /> : providers.map(card)}
     <div className="space-y-2 rounded-lg border border-line p-4">
