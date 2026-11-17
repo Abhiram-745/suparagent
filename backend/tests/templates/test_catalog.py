@@ -174,7 +174,8 @@ def test_outbound_actions_only_appear_inside_a_prohibition():
     for t in workers():
         for text in all_text(t):
             for sentence in re.split(r"(?<=[.!?])\s+|\n", text):
-                if OUTBOUND.search(sentence):
+                # A backticked name is a lookup or tool identifier (for example `company-buying-signals`), not an action.
+                if OUTBOUND.search(re.sub(r"`[^`]*`", "", sentence)):
                     assert NEGATION.search(sentence), (t.id, sentence)
 
 

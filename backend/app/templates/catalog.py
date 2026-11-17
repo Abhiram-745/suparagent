@@ -185,7 +185,7 @@ Your job this run: a page the owner can read in two minutes.
 1. Read the profile: the topics, competitors and places to watch, and the owner's briefing style (follow it exactly, including any item limit).
 2. Read the last brief, the latest brand news note and the latest competitor price note, so you only report what is new.
 3. Check what other workers left for review since yesterday (drafts, lists, reports). List them by name, one line each. Read only; do not edit them.
-4. Use `muapi_data_api_search` to find the task `research-web-search`. Inspect and estimate before each paid call. For each watched topic, search for what changed in the last day or two, with one or two queries per topic.
+4. Use `muapi_data_api_search` to find the task `research-web-answer`. Inspect and estimate before each paid call. For each watched topic, search for what changed in the last day or two, with one or two queries per topic.
 5. Keep only items that matter to this business. Where a claim has one source, label it "reported by [source], unconfirmed elsewhere". Prefer the original source over a rewrite of it.
 6. Write the brief: a three-line summary, the review list, the topic items with sources and dates, and one suggested next move.
 7. Keep it short. If nothing changed, write one line saying so, then stop. No filler.
@@ -208,7 +208,7 @@ Your job this run: tell the owner what the press is saying, and flag anything th
 ## Steps
 
 1. Read the profile for the brand, products, known aliases and misspellings, key people, competitors, and the company domain. Read the last news note so you do not repeat a story.
-2. Use `muapi_data_api_search` to find the task `reputation-news-search`. Inspect it and estimate before each paid call.
+2. Use `muapi_data_api_search` to find the task `news-search`. Inspect it and estimate before each paid call.
 3. Search by keyword for each brand term, and by domain once for the company domain. Domain results are company events such as funding or hiring, not press coverage; keep them in their own section.
 4. The task has no date-window option. Do not claim a window. Report the real date range the results span, and drop items already in the last note.
 5. Merge reprints of one story and count them once, but list each outlet.
@@ -263,7 +263,7 @@ Your job this run: a cited answer the owner can trust, with the doubts shown.
 
 1. Take the question from the owner or from the one the last daily brief suggested. If it is vague, ask one short question first.
 2. Split it into three to six sub-questions that together cover it. Read the profile for market, region, and anything never to claim.
-3. Use `muapi_data_api_search` to find the task `research-web-search`. Inspect and estimate before each paid call.
+3. Use `muapi_data_api_search` to find the task `research-web-answer`. Inspect and estimate before each paid call.
 4. Search each sub-question on its own, with several results each. Stop a sub-question once new results only repeat what you have.
 5. Accept a fact only when two independent sources agree. Otherwise label it "reported by [source], unconfirmed elsewhere". Prefer company statements, filings and original reporting over summaries of them.
 6. Where sources disagree on a number, date or claim, show both and say which you trust more, and why.
@@ -342,9 +342,9 @@ Your job this run: a short list the owner can trust, not a long one they must cl
 ## Steps
 
 1. Read the profile: the ideal customer, job titles, tools or signals that matter, the list size wanted, and any do-not-contact list.
-2. Use `muapi_data_api_search` to find the lookups `company.technographics` (reverse, when the profile names a tool they use), `people.search`, `company.enrich` and `people.rank_decision_makers`. Inspect and estimate before each paid call; start with the cheapest lookup that narrows the field.
-3. Build the company list first. Confirm each company's size, funding and industry with `company.enrich`; drop any that fail the profile, even if a contact matched.
-4. Find contacts at each confirmed company, then pick the best-fit buyer with the decision-maker ranking, not the first title match.
+2. Use `muapi_data_api_search` to find the lookups `company-technographics` (reverse, when the profile names a tool they use), `people-search`, `company-enrich` and `people-rank-decision-makers`. Inspect and estimate before each paid call; start with the cheapest lookup that narrows the field.
+3. Build the company list first. Confirm each company's size, funding and industry with `company-enrich`; drop any that fail the profile, even if a contact matched.
+4. Find contacts at each confirmed company, then pick the best-fit buyer with the decision-maker ranking, not the first title match. Contact lookups are the costly part (quotes are currently about $0.25 per person lookup and $0.50 per ranking), so rank only the best four companies per run and say which were left for next time.
 5. Keep per row: company and domain, why it fits (one line tied to the profile), contact and title, source and date. Set status `needs check`; only the verify skill can make a row `ready`.
 6. Remove duplicates by domain and anyone on the do-not-contact list. Leave a field empty rather than guess it. Never invent an email address or phone number.
 7. Stop at the wanted size or the run limit; never exceed the wanted size.
@@ -392,7 +392,7 @@ Your job this run: tell the owner who has a reason to talk now, and what the rea
 ## Steps
 
 1. Read the profile for the signals that matter, then the latest lead list. Skip anyone on the do-not-contact list.
-2. Use `muapi_data_api_search` to find the lookups `company.buying_signals`, `company.job_postings`, `company.headcount_growth`, `company.funding` and, for ad activity, `ads.ad_library_search`. Inspect and estimate before each paid call.
+2. Use `muapi_data_api_search` to find the lookups `company-buying-signals`, `company-job-postings`, `company-headcount-growth`, `company-funding` and, for ad activity, `ad-library-search`. Inspect and estimate before each paid call.
 3. Check the top twenty companies by fit. Look only for signals tied to the profile, such as hiring for the team you sell to, a funding round, fast headcount growth, a newly adopted tool, or new ads.
 4. Record each signal with its source and date. A signal older than ninety days is `stale`. Never infer spend, budget or intent beyond what the data shows.
 5. Rank the checked companies: strong, some, none. Give one line per company on why now.
@@ -416,7 +416,7 @@ Your job this run: make sure only contacts worth writing to reach the outreach d
 ## Steps
 
 1. Read the latest lead list and the do-not-contact list. Take rows with status `needs check` that have a named contact and a source.
-2. Use `muapi_data_api_search` to find the address check, `email.verify`, and never rely on an address it has not checked. Inspect and estimate before paying; verify in batches that fit the run limit.
+2. Use `muapi_data_api_search` to find the address check, `email-verify`, and never rely on an address it has not checked. Inspect and estimate before paying; verify in batches that fit the run limit.
 3. Categorize each address from the lookup result alone: `deliverable`, `risky` (catch-all, or a role address such as sales@), `undeliverable` or `unresolved`. Default to `unresolved`, never `deliverable`. Do not correct a suspected typo; flag it.
 4. Mark a row `ready` only when the contact is named, the address is `deliverable`, the company fit is sourced and dated, and nobody on the do-not-contact list matches.
 5. Mark `risky` rows `owner to decide`, and the rest `hold` with the reason. Never remove a row; every input row appears in the output.
@@ -440,7 +440,7 @@ Your job this run: tell the owner what changed, so the list stays worth using.
 ## Steps
 
 1. Read the profile, the latest lead list and the last signal scan.
-2. Use `muapi_data_api_search` to find `company.enrich`, `people.search` and the address check `email.verify`; never pay for a lookup that does not answer a question. Inspect and estimate before each paid call.
+2. Use `muapi_data_api_search` to find `company-enrich`, `people-search` and the address check `email-verify`; never pay for a lookup that does not answer a question. Inspect and estimate before each paid call.
 3. For each company check only what could have changed: still operating, the contact still in role, a new signal. Re-verify an address only when the contact changed or the last check is over ninety days old.
 4. Mark each row `same`, `changed` (say what), `gone` or `needs a person to check`, each with a source and date. A changed contact goes back to `needs check`.
 5. Suggest rows to add if the profile changed since the last build. Do not run a full rebuild here.
@@ -496,7 +496,7 @@ Your job this run: up to ten drafts the owner can copy as they are or trim, neve
 ## Steps
 
 1. Read the profile and the latest lead list. Take only rows marked `ready` that have no draft in your notes yet. Never draft for a row that is not `ready`, and skip anyone on a do-not-contact list.
-2. Use `muapi_data_api_search` to find `company.enrich` and, if the person is local, `seo-business-profile`. Inspect and estimate before each paid call.
+2. Use `muapi_data_api_search` to find `company-enrich` and, if the person is local, `seo-business-profile`. Inspect and estimate before each paid call.
 3. For each person find one fresh, specific reason to write now: a signal from the last scan, a hire, a launch or a change, with its source and date. If you find none, use what the list says and label it as general.
 4. Draft a short message: one line showing you know who they are, one line on the offer and the benefit to them, one small ask. Follow the profile's tone and its never-say lines.
 5. Under each draft add: why this person (the test they passed, the source line and its date), and a "needs your check" line for any fact you could not confirm.
@@ -521,7 +521,7 @@ Your job this run: up to five review-ready sequences, each a connection note and
 ## Steps
 
 1. Read the profile and the latest lead list. Take only rows marked `ready` with a named contact and no sequence yet. Skip anyone on a do-not-contact list.
-2. Use `muapi_data_api_search` to find `linkedin.people_search`, `linkedin.company_profile` and `linkedin.employees`. Inspect and estimate before each paid call. Use `linkedin.employees` only to name other decision-makers at the same company, not to draft to them.
+2. Use `muapi_data_api_search` to find `linkedin-people-search`, `linkedin-company-profile` and `linkedin-employees`. Inspect and estimate before each paid call. Use `linkedin-employees` only to name other decision-makers at the same company, not to draft to them.
 3. Find the person's real profile and company page. Pick the strongest real signal: a role change, a company announcement, a shared topic. If none can be confirmed, say so; never invent a post, a mutual connection or a referral.
 4. Draft the connection note in 300 characters or fewer, with no pitch, then two follow-ups. Each advances the stated goal with a new angle and is shorter than the one before. Follow the profile's tone and never-say lines.
 5. Under each sequence cite the source for every personal detail, and add a "needs your check" line.
@@ -571,7 +571,7 @@ Your job this run: a page the owner can read in three minutes before the convers
 ## Steps
 
 1. Read the profile, the person's row, every draft sent to them as noted by the owner, and their reply.
-2. Use `muapi_data_api_search` to find `company.enrich`, `company.funding`, `company.technographics` (detect), `company.job_postings` and `linkedin.company_profile`. Inspect and estimate before each paid call; skip any lookup the page does not need.
+2. Use `muapi_data_api_search` to find `company-enrich`, `company-funding`, `company-technographics` (detect), `company-job-postings` and `linkedin-company-profile`. Inspect and estimate before each paid call; skip any lookup the page does not need.
 3. Write the brief: who they are and their role, the company in three lines (size, funding, industry), the tools they use, what they are hiring for, and any news with its source and date.
 4. Say what their reply suggests they care about, quoting only what they wrote.
 5. Add three questions to ask and one likely objection with a short, honest answer drawn from the profile. Claim no result the profile does not support.
@@ -786,9 +786,9 @@ Your job this run: a short digest of what people say about the business and its 
 
 1. Read the profile for the tracked terms, competitor terms and accounts, the platforms, and anything never to name.
 2. Read last week's digest so you can say what is new.
-3. Use `muapi_data_api_search` to find the social search capability `social.search_posts` (keyword or hashtag search on TikTok, Instagram and YouTube) and `social.read_posts` (a known account or subreddit). Inspect and estimate before each paid call.
+3. Use `muapi_data_api_search` to find the social search capability `social-search-posts` (keyword or hashtag search on TikTok, Instagram and YouTube) and `social-read-posts` (a known account or subreddit). Inspect and estimate before each paid call.
 4. Run one bounded search per term and platform, same window and filters for the brand and each competitor. Keep the query, filters, count and date of each.
-5. For a known competitor account or subreddit the profile names, read its recent public updates with `social.read_posts`.
+5. For a known competitor account or subreddit the profile names, read its recent public updates with `social-read-posts`.
 6. Group the text into recurring themes. A theme needs several independent items. Label any sentiment as your own reading, with the sample size. If only counts came back, infer nothing.
 7. State the coverage: what was searched, the sample size, and what was not covered (X, comments, Reddit-wide search, LinkedIn, Threads). Never call a sample total volume or share of voice.
 8. Quote up to five items the owner should see, with links and dates, and list questions or complaints that deserve a personal answer.
@@ -811,11 +811,11 @@ Your job this run: tell the owner what is working in the niche this week, so the
 ## Steps
 
 1. Read the profile for the niche, the platforms, the voice and anything never to claim or name. Read last week's trend note.
-2. Use `muapi_data_api_search` to find the social search capability `social.search_posts` (TikTok, Instagram, YouTube; a leading hash on Instagram searches a hashtag) and `social.read_posts` for known accounts. Inspect and estimate before each paid call.
+2. Use `muapi_data_api_search` to find the social search capability `social-search-posts` (TikTok, Instagram, YouTube; a leading hash on Instagram searches a hashtag) and `social-read-posts` for known accounts. Inspect and estimate before each paid call.
 3. Search up to five niche terms or hashtags on each platform, with the same window and count every run so weeks compare. There is no built-in trending list; repeated comparable searches are the method.
 4. Note the formats (length, hook style, structure), topics, hashtags and audio that recur across several independent creators. One high-engagement item is an example, not a trend.
 5. Check last week's note. Call something rising only when two comparable snapshots show it.
-6. Validate up to three standout creators by reading their recent public updates with `social.read_posts`.
+6. Validate up to three standout creators by reading their recent public updates with `social-read-posts`.
 7. Finish with up to five ideas for the drafts, each tied to its evidence and date, and a line on what to avoid because it is crowded or off-brand.
 8. Save the query list and counts so the next run can compare.
 
@@ -838,7 +838,7 @@ Your job this run: one draft for every slot next week, each one worth reading.
 
 1. Read the profile, the voice samples, last week's drafts and the review note. Do not repeat a topic or an opening line from the last two weeks.
 2. Read the latest listening digest and trend note. Use their evidence as raw material, alongside what the owner shipped or learned recently from the profile and notes.
-3. If the notes are older than a week and MuAPI is connected, run one fresh bounded search with `social.search_posts` (search, inspect, estimate, capped call).
+3. If the notes are older than a week and MuAPI is connected, run one fresh bounded search with `social-search-posts` (search, inspect, estimate, capped call).
 4. For each slot, pick one specific, dated thing to say. Prefer a real detail over a general claim.
 5. Rotate the structure: do not open or close two updates in a row the same way.
 6. Write the plain text for the platform. Count characters, including any hashtags, and stay inside the limit. Add a short caption or script note where the slot is a video.
@@ -865,7 +865,7 @@ Your job this run: a short review the owner acts on.
 1. Read the profile, the week's drafts, the listening digest and the numbers the owner left. Use only those; never invent a figure. An absent number stays empty, not zero.
 2. For each update, put its numbers beside its draft, with where each number came from.
 3. Compare updates only when the data allows it. Say "too few to tell" when it does not.
-4. If the profile names competitor accounts and MuAPI is connected, read their recent public updates with `social.read_posts` (search, inspect, estimate, capped call) and note what they did that drew reaction. Treat it as a sample.
+4. If the profile names competitor accounts and MuAPI is connected, read their recent public updates with `social-read-posts` (search, inspect, estimate, capped call) and note what they did that drew reaction. Treat it as a sample.
 5. Name one thing to do more of and one thing to stop, each with the evidence behind it.
 6. Say what one rule in the drafting should change next week, in a single line.
 7. Note any reply or comment the owner should answer personally, with the person's words quoted.
@@ -888,10 +888,10 @@ Your job this run: a short, evidenced list of creators worth the owner's attenti
 ## Steps
 
 1. Read the profile for the niche, the audience, the platforms, any follower range and engagement bar, and anything never to claim or name. Read the last creator list so no one repeats.
-2. Use `muapi_data_api_search` to find the creator capabilities `social.search_creators`, `social.creator_profile`, `social.creator_analytics` and `social.creator_lookalike`. They cover Instagram, TikTok and YouTube only, and may not be live yet; inspect each before use.
-3. Search by niche with filters from the profile (platform, country, follower range, engagement rate). If a creator capability is not available, say so and use `social.search_posts` to find who makes the matching content.
-4. For up to ten promising creators, get the profile and, within the spend limits, the analytics. Use `social.creator_lookalike` once on the best fit to widen the list.
-5. Check each creator's recent public updates with `social.read_posts` for fit, tone and anything the brand would not want to be near.
+2. Use `muapi_data_api_search` to find the lookups `creators-search`, `creators-lookalike`, `creators-profile` and `creators-analytics`. They cover Instagram, TikTok and YouTube only. Inspect and estimate each before use.
+3. Search by niche with filters from the profile (platform, country, follower range, engagement rate). Quotes for `creators-search` and `creators-lookalike` are usually inside the limits.
+4. The profile and analytics lookups usually quote above the per-call limit, so use them only when a fresh quote fits, and for at most three creators. Otherwise rely on step 5. Use `creators-lookalike` once on the best fit to widen the list.
+5. Check each creator's recent public updates with `social-read-posts` for fit, tone and anything the brand would not want to be near.
 6. Rank up to ten creators: handle, platform, followers, engagement, why they fit, one risk, and the link and date you looked.
 7. Leave out anyone who conflicts with the profile's rules.
 
@@ -994,7 +994,7 @@ Your job this run: show what competitors are running and which of it seems to wo
 ## Steps
 
 1. Read the profile for the competitors, platforms, market and anything never to name or claim. Read the last watch note.
-2. Use `muapi_data_api_search` to find the task `ads.ad_library_search`. Inspect it and estimate before each paid call. Look up each competitor on each platform, scoped to the owner's country, one capped call per pair.
+2. Use `muapi_data_api_search` to find the task `ad-library-search`. Inspect it and estimate before each paid call. Meta's library is the one that works today; Google, TikTok and LinkedIn may return nothing, so say that rather than treat silence as no ads. Look up each competitor on Meta first, scoped to the owner's country, one capped call each; a call returns about ten ads.
 3. Group the ads by concept. For each give: the angle, the format, the offer, and the date it was first seen live.
 4. Treat a long continuous run as a sign an ad works, never as a measured result. An ad that was off for under three days counts as one run. A very new ad is "new and unproven".
 5. If a competitor has fewer than three active ads, say the sample is too small for conclusions.
