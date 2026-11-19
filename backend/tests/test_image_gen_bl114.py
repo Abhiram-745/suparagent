@@ -145,3 +145,62 @@ async def test_openai_adapter_decodes_b64_and_hides_errors(monkeypatch):
         await image_gen.OpenAICompatibleProvider().generate("fox", "1024x1024")
     assert "sk-" not in e.value.message
     assert image_gen.OpenAICompatibleProvider().available()
+
+
+def _serve(monkeypatch, routes):
+    """Route requests by URL to canned responses; record every URL and the Authorization header."""
+    seen = []
+    real = httpx.AsyncClient
+
+    def handler(request):
+        seen.append((str(request.url), request.headers.get("authorization")))
+        return routes(str(request.url))
+
+    monkeypatch.setattr(image_gen.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    return seen
+
+
+CDN = "https://cdn.muapi.ai/outputs/generated/abc.png"
+
+
+async def test_adapter_follows_a_link_on_the_provider_cdn(monkeypatch):
+    monkeypatch.setattr(settings, "IMAGE_API_KEY", "sk-secretsecretsecretsecret")
+    seen = _serve(monkeypatch, lambda url: httpx.Response(200, json={"data": [{"url": CDN}]}) if "images/generations" in url
+                  else httpx.Response(200, content=PNG))
+    assert await image_gen.OpenAICompatibleProvider().generate("fox", "1024x1024") == PNG
+    assert seen[1] == (CDN, None)  # the key is never sent to the download
+
+
+@pytest.mark.parametrize("url", [
+    "http://cdn.muapi.ai/x.png", "https://evil.example/x.png", "https://cdn.muapi.ai.evil.example/x.png",
+    "https://user@cdn.muapi.ai/x.png", "https://cdn.muapi.ai:8443/x.png", "https://127.0.0.1/x.png", "file:///etc/passwd",
+])
+async def test_adapter_refuses_links_outside_the_cdn(monkeypatch, url):
+    monkeypatch.setattr(settings, "IMAGE_API_KEY", "sk-secretsecretsecretsecret")
+    seen = _serve(monkeypatch, lambda u: httpx.Response(200, json={"data": [{"url": url}]}))
+    with pytest.raises(image_gen.ImageError) as e:
+        await image_gen.OpenAICompatibleProvider().generate("fox", "1024x1024")
+    assert len(seen) == 1 and "not an image" in e.value.message
+
+
+async def test_download_is_bounded_and_does_not_follow_redirects(monkeypatch):
+    monkeypatch.setattr(settings, "IMAGE_API_KEY", "sk-secretsecretsecretsecret")
+    monkeypatch.setattr(image_gen, "IMAGE_MAX_BYTES", 32)
+    _serve(monkeypatch, lambda url: httpx.Response(200, json={"data": [{"url": CDN}]}) if "images/generations" in url
+           else httpx.Response(200, content=PNG))
+    with pytest.raises(image_gen.ImageError):
+        await image_gen.OpenAICompatibleProvider().generate("fox", "1024x1024")
+    monkeypatch.undo()
+    monkeypatch.setattr(settings, "IMAGE_API_KEY", "sk-secretsecretsecretsecret")
+    seen = _serve(monkeypatch, lambda url: httpx.Response(200, json={"data": [{"url": CDN}]}) if "images/generations" in url
+                  else httpx.Response(302, headers={"location": "https://evil.example/x.png"}))
+    with pytest.raises(image_gen.ImageError):
+        await image_gen.OpenAICompatibleProvider().generate("fox", "1024x1024")
+    assert all("evil.example" not in url for url, _ in seen)
+
+
+async def test_response_with_neither_image_nor_link_is_rejected(monkeypatch):
+    monkeypatch.setattr(settings, "IMAGE_API_KEY", "sk-secretsecretsecretsecret")
+    _serve(monkeypatch, lambda url: httpx.Response(200, json={"data": [{}]}))
+    with pytest.raises(image_gen.ImageError):
+        await image_gen.OpenAICompatibleProvider().generate("fox", "1024x1024")

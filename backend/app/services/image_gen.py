@@ -19,6 +19,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -33,6 +34,8 @@ IMAGE_MAX_BYTES = 10 * 1024 * 1024
 SIZES = ("1024x1024", "1536x1024", "1024x1536")
 DEFAULT_SIZE = SIZES[0]
 KEEP_GENERATED = 50
+# Providers that answer with a link instead of base64 (MuAPI) are followed only to these hosts.
+IMAGE_URL_HOSTS = frozenset({"cdn.muapi.ai"})
 _ID = re.compile(r"^[0-9a-f]{32}$")
 _MAGIC = ((b"\x89PNG\r\n\x1a\n", "image/png", ".png"), (b"\xff\xd8\xff", "image/jpeg", ".jpg"))
 
@@ -67,11 +70,48 @@ class OpenAICompatibleProvider:
             response = await client.post(f"{base}/images/generations", json=body, headers=headers)
         if response.status_code != 200:
             raise ImageError(502, "provider_failed", "The image service could not make that image.")
+        not_an_image = ImageError(502, "provider_failed", "The image service returned something that is not an image.")
         try:
-            data = response.json()["data"][0]["b64_json"]
-            return base64.b64decode(data, validate=True)
+            item = response.json()["data"][0]
+            if item.get("b64_json"):
+                return base64.b64decode(item["b64_json"], validate=True)
+            url = item.get("url")
         except Exception:
-            raise ImageError(502, "provider_failed", "The image service returned something that is not an image.") from None
+            raise not_an_image from None
+        if isinstance(url, str) and _allowed_image_url(url):
+            return await _download(url)
+        raise not_an_image
+
+
+def _allowed_image_url(url: str) -> bool:
+    try:
+        parts = urlsplit(url)
+        return (parts.scheme == "https" and parts.hostname in IMAGE_URL_HOSTS and parts.username is None
+                and parts.port in (None, 443))
+    except ValueError:
+        return False
+
+
+async def _download(url: str) -> bytes:
+    """Fetch a provider's image link: fixed hosts, no redirects, no credentials, bounded size."""
+    pieces: list[bytes] = []
+    size = 0
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(tool_timeout.seconds()), follow_redirects=False,
+                                     trust_env=False) as client:
+            async with client.stream("GET", url) as response:
+                if response.status_code != 200:
+                    raise ImageError(502, "provider_failed", "The image service could not make that image.")
+                async for chunk in response.aiter_bytes():
+                    size += len(chunk)
+                    if size > IMAGE_MAX_BYTES:
+                        raise ImageError(502, "provider_failed", "The image service returned something that is not an image.")
+                    pieces.append(chunk)
+    except ImageError:
+        raise
+    except httpx.HTTPError:
+        raise ImageError(502, "provider_failed", "The image service could not make that image.") from None
+    return b"".join(pieces)
 
 
 _PROVIDERS: dict[str, ImageProvider] = {"openai": OpenAICompatibleProvider()}
