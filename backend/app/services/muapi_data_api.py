@@ -19,11 +19,12 @@ import httpx
 from app.core.config import settings
 
 API_ROOT = "https://api.muapi.ai/api/v1"
-DATA_FAMILIES = frozenset({"seo"})
-# Read-only tasks reached by exact name, whatever family MuAPI files them under.
-# Web research returns cited answers, result lists and page text; it never publishes.
-NAMED_TASKS = {"research-web-answer": "research"}
-SEARCH_DOMAINS = DATA_FAMILIES | frozenset(NAMED_TASKS.values())
+# Families that hold read-only lookups, checked against the live catalog on 2026-11-19:
+# "seo", "enrichment" (company, people, news, social reads, ad library, creators, web
+# research, email verification) and "ecommerce_data" (marketplace listings and reviews).
+# The "social" family publishes posts and is deliberately not listed.
+DATA_FAMILIES = frozenset({"seo", "enrichment", "ecommerce_data"})
+SEARCH_DOMAINS = DATA_FAMILIES
 API_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 PREDICTION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 MAX_RESPONSE_BYTES = 1_000_000
@@ -32,7 +33,7 @@ MAX_REQUEST_BYTES = 64_000
 TOOL_DEFINITIONS = (
     {
         "name": "muapi_data_api_search",
-        "description": "Search MuAPI's live SEO, data and web research model catalog. Returns current input fields and price metadata. Publishing and sandbox-control endpoints are excluded.",
+        "description": "Search MuAPI's live SEO, company and people lookups, news, social reads, ad library, creators, e-commerce and web research catalog. Returns current input fields and price metadata. Publishing and sandbox-control endpoints are excluded.",
         "inputSchema": {"type": "object", "additionalProperties": False, "properties": {
             "query": {"type": "string", "maxLength": 200,
                       "description": "Task or endpoint search, such as backlinks, company enrichment or public posts."},
@@ -100,9 +101,6 @@ def agent_grant_lock(agent_id: int) -> asyncio.Lock:
 
 
 def data_domain(model: dict) -> str | None:
-    named = NAMED_TASKS.get(model.get("name")) if isinstance(model.get("name"), str) else None
-    if named:
-        return named
     family = model.get("family")
     return family.lower() if isinstance(family, str) and family.lower() in DATA_FAMILIES else None
 
